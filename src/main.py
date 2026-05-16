@@ -38,36 +38,41 @@ import os
 import sys
 
 from profiler import build_reference_profile, load_reference_profile, analyze_chunk
-from scorer   import score_chunk
-from reporter import generate_report, generate_prompt_debug_report, generate_ceiling_report
-from config   import THRESHOLDS, WEIGHTS, CEILING_THRESHOLDS
+from scorer import score_chunk
+from reporter import (
+    generate_report,
+    generate_prompt_debug_report,
+    generate_ceiling_report,
+)
+from config import THRESHOLDS, WEIGHTS, CEILING_THRESHOLDS
 
 _PROFILE_CACHE = "reference_profile.json"
-_REPORTS_DIR   = "reports"
-_AUDIO_EXTS    = {".mp3", ".wav"}
+_REPORTS_DIR = "reports"
+_AUDIO_EXTS = {".mp3", ".wav"}
 
 # Feature display names for the batch summary table.
 # Mirrors reporter._FEATURE_DISPLAY — defined here to avoid importing a private
 # symbol from reporter.py.
 _SUMMARY_NAMES: dict[str, str] = {
-    "lufs":              "LUFS",
-    "rms":               "RMS energy",
-    "dynamic_range":     "Dynamic range",
+    "lufs": "LUFS",
+    "rms": "RMS energy",
+    "dynamic_range": "Dynamic range",
     "spectral_centroid": "Spectral centroid",
-    "spectral_rolloff":  "Spectral rolloff",
-    "low_mid_energy":    "Low-mid energy",
-    "presence_band":     "Presence band",
-    "high_shelf":        "High shelf",
-    "stereo_width":      "Stereo width",
-    "tempo":             "Tempo",
-    "zcr":               "Zero crossing rate",
-    "mfcc_distance":     "MFCC distance",
+    "spectral_rolloff": "Spectral rolloff",
+    "low_mid_energy": "Low-mid energy",
+    "presence_band": "Presence band",
+    "high_shelf": "High shelf",
+    "stereo_width": "Stereo width",
+    "tempo": "Tempo",
+    "zcr": "Zero crossing rate",
+    "mfcc_distance": "MFCC distance",
 }
 
 
 # ---------------------------------------------------------------------------
 # Reference profile caching  (unchanged from Phase 3)
 # ---------------------------------------------------------------------------
+
 
 def _load_or_build_reference(reference_path: str) -> dict:
     """
@@ -81,7 +86,7 @@ def _load_or_build_reference(reference_path: str) -> dict:
 
     if os.path.isfile(_PROFILE_CACHE):
         try:
-            cached        = load_reference_profile(_PROFILE_CACHE)
+            cached = load_reference_profile(_PROFILE_CACHE)
             cached_source = os.path.abspath(cached.get("_source", ""))
             if cached_source == abs_ref:
                 print(f"  [MAIN] Cache hit — using existing {_PROFILE_CACHE}")
@@ -92,7 +97,9 @@ def _load_or_build_reference(reference_path: str) -> dict:
                 print(f"         Current: {abs_ref}")
                 print(f"  [MAIN] Rebuilding reference profile...")
         except Exception as exc:
-            print(f"  [MAIN] Could not read cache ({exc}) — rebuilding.", file=sys.stderr)
+            print(
+                f"  [MAIN] Could not read cache ({exc}) — rebuilding.", file=sys.stderr
+            )
 
     return build_reference_profile(reference_path, save_path=_PROFILE_CACHE)
 
@@ -101,11 +108,12 @@ def _load_or_build_reference(reference_path: str) -> dict:
 # Core pipeline — single chunk  (unchanged from Phase 3)
 # ---------------------------------------------------------------------------
 
+
 def run_single(
     reference_path: str,
-    chunk_path:     str,
-    output_json:    bool = False,
-    prompt_debug:   bool = False,
+    chunk_path: str,
+    output_json: bool = False,
+    prompt_debug: bool = False,
 ) -> tuple[str, float]:
     """
     Full pipeline: profiler → scorer → reporter for one chunk.
@@ -127,19 +135,19 @@ def run_single(
             sys.exit(1)
 
     ref_profile = _load_or_build_reference(reference_path)
-    analysis    = analyze_chunk(chunk_path, ref_profile)
-    score       = score_chunk(analysis, THRESHOLDS, WEIGHTS)
-    chunk_name  = os.path.basename(chunk_path)
+    analysis = analyze_chunk(chunk_path, ref_profile)
+    score = score_chunk(analysis, THRESHOLDS, WEIGHTS)
+    chunk_name = os.path.basename(chunk_path)
 
     if output_json:
         report_str = json.dumps(
             {
                 "chunk_name": chunk_name,
                 "analysis": {
-                    "chunk_path":       analysis["chunk_path"],
-                    "chunk_values":     analysis["chunk_values"],
+                    "chunk_path": analysis["chunk_path"],
+                    "chunk_values": analysis["chunk_values"],
                     "reference_values": analysis["reference_values"],
-                    "deltas":           analysis["deltas"],
+                    "deltas": analysis["deltas"],
                 },
                 "score": score,
             },
@@ -157,10 +165,11 @@ def run_single(
 # Ceiling Analysis pipeline — Phase 6
 # ---------------------------------------------------------------------------
 
+
 def run_ceiling(
     ceiling_path: str,
-    chunk_path:   str,
-    output_json:  bool = False,
+    chunk_path: str,
+    output_json: bool = False,
 ) -> str:
     """
     Phase 6 — Ceiling Analysis pipeline (FR-9).
@@ -182,6 +191,7 @@ def run_ceiling(
         str — Markdown ceiling report or JSON string.
     """
     import numpy as np
+    from scipy.spatial.distance import cosine
     from extractor import extract_features
 
     for path, label in [(ceiling_path, "Ceiling reference"), (chunk_path, "Chunk")]:
@@ -190,7 +200,7 @@ def run_ceiling(
             sys.exit(1)
 
     ceiling_name = os.path.basename(ceiling_path)
-    chunk_name   = os.path.basename(chunk_path)
+    chunk_name = os.path.basename(chunk_path)
 
     print(
         f"  [CEILING] Extracting features from commercial reference: {ceiling_name}",
@@ -206,12 +216,14 @@ def run_ceiling(
 
     # Compute MFCC distance — derived metric, not a raw feature from extract_features()
     ceiling_mfccs = np.array(ceiling_feats["mfcc"])
-    chunk_mfccs   = np.array(chunk_feats["mfcc"])
-    mfcc_distance = float(np.mean(np.abs(chunk_mfccs - ceiling_mfccs)))
+    chunk_mfccs = np.array(chunk_feats["mfcc"])
+    mfcc_distance = float(cosine(chunk_mfccs[1:], ceiling_mfccs[1:]))
 
     # Compute deltas and red flags for included features only
-    deltas:    dict[str, float] = {}
-    red_flags: list[str]        = []
+
+    # Compute deltas and red flags for included features only
+    deltas: dict[str, float] = {}
+    red_flags: list[str] = []
 
     for feature, threshold in CEILING_THRESHOLDS.items():
         if feature == "mfcc_distance":
@@ -229,14 +241,14 @@ def run_ceiling(
 
         return json.dumps(
             {
-                "mode":           "ceiling",
-                "chunk_name":     chunk_name,
-                "ceiling_name":   ceiling_name,
-                "red_flags":      red_flags,
-                "n_checked":      len(CEILING_THRESHOLDS),
-                "n_flags":        len(red_flags),
-                "deltas":         deltas,
-                "chunk_values":   _strip_mfcc(chunk_feats),
+                "mode": "ceiling",
+                "chunk_name": chunk_name,
+                "ceiling_name": ceiling_name,
+                "red_flags": red_flags,
+                "n_checked": len(CEILING_THRESHOLDS),
+                "n_flags": len(red_flags),
+                "deltas": deltas,
+                "chunk_values": _strip_mfcc(chunk_feats),
                 "ceiling_values": _strip_mfcc(ceiling_feats),
             },
             indent=2,
@@ -251,6 +263,7 @@ def run_ceiling(
         red_flags=red_flags,
         ceiling_thresholds=CEILING_THRESHOLDS,
     )
+
 
 def _collect_audio_files(folder: str) -> list[str]:
     """
@@ -300,7 +313,8 @@ def _write_summary(results: list[dict]) -> None:
     for rank, r in enumerate(successes, start=1):
         flagged_display = (
             ", ".join(_SUMMARY_NAMES.get(f, f) for f in r["flagged"])
-            if r["flagged"] else "—"
+            if r["flagged"]
+            else "—"
         )
         lines.append(
             f"| {rank} "
@@ -318,7 +332,7 @@ def _write_summary(results: list[dict]) -> None:
             "|:------|:------|",
         ]
         for r in errors:
-            err_msg   = r["error"]
+            err_msg = r["error"]
             err_short = err_msg[:120] + "…" if len(err_msg) > 120 else err_msg
             lines.append(f"| {r['chunk_name']} | `{err_short}` |")
 
@@ -331,7 +345,9 @@ def _write_summary(results: list[dict]) -> None:
     print(f"  [BATCH] Summary written to: {summary_path}", file=sys.stderr)
 
 
-def run_batch(reference_path: str, batch_folder: str, output_json: bool = False) -> None:
+def run_batch(
+    reference_path: str, batch_folder: str, output_json: bool = False
+) -> None:
     """
     Batch pipeline: process all .mp3 / .wav files in batch_folder.
 
@@ -392,26 +408,26 @@ def run_batch(reference_path: str, batch_folder: str, output_json: bool = False)
     error_count = 0
 
     for i, chunk_path in enumerate(audio_files, start=1):
-        chunk_name      = os.path.basename(chunk_path)
-        chunk_stem      = os.path.splitext(chunk_name)[0]
+        chunk_name = os.path.basename(chunk_path)
+        chunk_stem = os.path.splitext(chunk_name)[0]
         report_filename = f"{chunk_stem}_report{report_ext}"
-        report_path     = os.path.join(_REPORTS_DIR, report_filename)
+        report_path = os.path.join(_REPORTS_DIR, report_filename)
 
         print(f"  [BATCH] ({i}/{len(audio_files)}) {chunk_name}", file=sys.stderr)
 
         try:
             analysis = analyze_chunk(chunk_path, ref_profile)
-            score    = score_chunk(analysis, THRESHOLDS, WEIGHTS)
+            score = score_chunk(analysis, THRESHOLDS, WEIGHTS)
 
             if output_json:
                 report_str = json.dumps(
                     {
                         "chunk_name": chunk_name,
                         "analysis": {
-                            "chunk_path":       analysis["chunk_path"],
-                            "chunk_values":     analysis["chunk_values"],
+                            "chunk_path": analysis["chunk_path"],
+                            "chunk_values": analysis["chunk_values"],
                             "reference_values": analysis["reference_values"],
-                            "deltas":           analysis["deltas"],
+                            "deltas": analysis["deltas"],
                         },
                         "score": score,
                     },
@@ -424,8 +440,8 @@ def run_batch(reference_path: str, batch_folder: str, output_json: bool = False)
                 fh.write(report_str)
 
             consistency_score = score["consistency_score"]
-            flagged           = score["flagged_features"]
-            flag_display      = (
+            flagged = score["flagged_features"]
+            flag_display = (
                 ", ".join(_SUMMARY_NAMES.get(f, f) for f in flagged) or "none"
             )
 
@@ -440,23 +456,27 @@ def run_batch(reference_path: str, batch_folder: str, output_json: bool = False)
                     file=sys.stderr,
                 )
 
-            results.append({
-                "chunk_name": chunk_name,
-                "score":      consistency_score,
-                "flagged":    flagged,
-                "error":      None,
-            })
+            results.append(
+                {
+                    "chunk_name": chunk_name,
+                    "score": consistency_score,
+                    "flagged": flagged,
+                    "error": None,
+                }
+            )
 
         except Exception as exc:
             error_count += 1
             error_msg = str(exc)
             print(f"           ERROR — {error_msg}", file=sys.stderr)
-            results.append({
-                "chunk_name": chunk_name,
-                "score":      None,
-                "flagged":    [],
-                "error":      error_msg,
-            })
+            results.append(
+                {
+                    "chunk_name": chunk_name,
+                    "score": None,
+                    "flagged": [],
+                    "error": error_msg,
+                }
+            )
 
     # -- Stop condition (plan Phase 4) ---------------------------------------
     if error_count > 1:
@@ -491,6 +511,7 @@ def run_batch(reference_path: str, batch_folder: str, output_json: bool = False)
 # CLI
 # ---------------------------------------------------------------------------
 
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         prog="audio-qa",
@@ -522,14 +543,18 @@ Examples:
     )
 
     parser.add_argument(
-        "--reference", required=False, default=None,
+        "--reference",
+        required=False,
+        default=None,
         help=(
             "Reference audio file (WAV or MP3) — your 'Happy Accident' track. "
             "Required for all modes except --ceiling."
         ),
     )
     parser.add_argument(
-        "--ceiling", default=None, metavar="FILE",
+        "--ceiling",
+        default=None,
+        metavar="FILE",
         help=(
             "Commercial reference track for production hygiene check (Phase 6). "
             "Mutually exclusive with --reference and --batch. "
@@ -551,11 +576,15 @@ Examples:
     )
 
     parser.add_argument(
-        "--output", default=None, metavar="FILE",
+        "--output",
+        default=None,
+        metavar="FILE",
         help="[Single mode only] Write report to FILE instead of stdout.",
     )
     parser.add_argument(
-        "--mode", default="qa", choices=["qa", "prompt-debug"],
+        "--mode",
+        default="qa",
+        choices=["qa", "prompt-debug"],
         help=(
             "[Single mode only] 'qa' = standard QA report (default). "
             "'prompt-debug' = QA report + Suno Prompt Implications section. "
@@ -563,7 +592,8 @@ Examples:
         ),
     )
     parser.add_argument(
-        "--json", action="store_true",
+        "--json",
+        action="store_true",
         help="Output raw JSON instead of Markdown.",
     )
 
@@ -571,10 +601,12 @@ Examples:
 
     # -- Validate --reference / --ceiling mutual exclusion -------------------
     has_reference = args.reference is not None
-    has_ceiling   = args.ceiling   is not None
+    has_ceiling = args.ceiling is not None
 
     if has_reference and has_ceiling:
-        parser.error("--reference and --ceiling are mutually exclusive. Use one or the other.")
+        parser.error(
+            "--reference and --ceiling are mutually exclusive. Use one or the other."
+        )
 
     if not has_reference and not has_ceiling:
         parser.error(
@@ -639,14 +671,17 @@ Examples:
 
     # -- Single mode (Phase 3 / 5 logic) ------------------------------------
     is_prompt_debug = args.mode == "prompt-debug"
-    mode_label      = "Prompt Debug" if is_prompt_debug else "Single Chunk Analysis"
+    mode_label = "Prompt Debug" if is_prompt_debug else "Single Chunk Analysis"
 
     print(f"\n{'='*64}", file=sys.stderr)
     print(f"  AUDIO-QA — {mode_label}", file=sys.stderr)
     print(f"  Reference : {args.reference}", file=sys.stderr)
     print(f"  Chunk     : {args.chunk}", file=sys.stderr)
     if is_prompt_debug:
-        print(f"  Mode      : prompt-debug (Suno Prompt Implications enabled)", file=sys.stderr)
+        print(
+            f"  Mode      : prompt-debug (Suno Prompt Implications enabled)",
+            file=sys.stderr,
+        )
     print(f"{'='*64}\n", file=sys.stderr)
 
     report, consistency_score = run_single(
@@ -662,7 +697,10 @@ Examples:
         print("  ⚠  STOP CONDITION — Consistency Score is below 50", file=sys.stderr)
         print(f"     Score: {consistency_score}/100", file=sys.stderr)
         print("     If this chunk sounds correct to your ear:", file=sys.stderr)
-        print("     → recalibrate THRESHOLDS in config.py before Phase 4.", file=sys.stderr)
+        print(
+            "     → recalibrate THRESHOLDS in config.py before Phase 4.",
+            file=sys.stderr,
+        )
         print("     → do not treat this score as authoritative.", file=sys.stderr)
         print("", file=sys.stderr)
     elif consistency_score < 65:

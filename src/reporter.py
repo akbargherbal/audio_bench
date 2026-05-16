@@ -41,60 +41,60 @@ _SCORE_KEYS: list[str] = [
 ]
 
 _FEATURE_DISPLAY: dict[str, str] = {
-    "lufs":              "LUFS",
-    "rms":               "RMS energy",
-    "dynamic_range":     "Dynamic range",
+    "lufs": "LUFS",
+    "rms": "RMS energy",
+    "dynamic_range": "Dynamic range",
     "spectral_centroid": "Spectral centroid",
-    "spectral_rolloff":  "Spectral rolloff",
-    "low_mid_energy":    "Low-mid energy (200–500 Hz)",
-    "presence_band":     "Presence band (1k–4kHz)",
-    "high_shelf":        "High shelf (8kHz+)",
-    "stereo_width":      "Stereo width",
-    "tempo":             "Tempo",
-    "zcr":               "Zero crossing rate",
-    "mfcc_distance":     "MFCC distance",
+    "spectral_rolloff": "Spectral rolloff",
+    "low_mid_energy": "Low-mid energy (200–500 Hz)",
+    "presence_band": "Presence band (1k–4kHz)",
+    "high_shelf": "High shelf (8kHz+)",
+    "stereo_width": "Stereo width",
+    "tempo": "Tempo",
+    "zcr": "Zero crossing rate",
+    "mfcc_distance": "MFCC distance",
 }
 
 _FEATURE_UNITS: dict[str, str] = {
-    "lufs":              "LUFS",
-    "rms":               "",
-    "dynamic_range":     "dB",
+    "lufs": "LUFS",
+    "rms": "",
+    "dynamic_range": "dB",
     "spectral_centroid": "Hz",
-    "spectral_rolloff":  "Hz",
-    "low_mid_energy":    "frac",
-    "presence_band":     "frac",
-    "high_shelf":        "frac",
-    "stereo_width":      "",
-    "tempo":             "BPM",
-    "zcr":               "",
-    "mfcc_distance":     "",
+    "spectral_rolloff": "Hz",
+    "low_mid_energy": "frac",
+    "presence_band": "frac",
+    "high_shelf": "frac",
+    "stereo_width": "",
+    "tempo": "BPM",
+    "zcr": "",
+    "mfcc_distance": "",
 }
 
 # printf-style format spec for scalar values and deltas
 _FEATURE_FMT: dict[str, str] = {
-    "lufs":              ".2f",
-    "rms":               ".6f",
-    "dynamic_range":     ".2f",
+    "lufs": ".2f",
+    "rms": ".6f",
+    "dynamic_range": ".2f",
     "spectral_centroid": ".1f",
-    "spectral_rolloff":  ".1f",
-    "low_mid_energy":    ".6f",
-    "presence_band":     ".6f",
-    "high_shelf":        ".6f",
-    "stereo_width":      ".6f",
-    "tempo":             ".1f",
-    "zcr":               ".6f",
-    "mfcc_distance":     ".4f",
+    "spectral_rolloff": ".1f",
+    "low_mid_energy": ".6f",
+    "presence_band": ".6f",
+    "high_shelf": ".6f",
+    "stereo_width": ".6f",
+    "tempo": ".1f",
+    "zcr": ".6f",
+    "mfcc_distance": ".4f",
 }
 
 # MFCC coefficient role labels — must match extractor._MFCC_LABELS (1-indexed)
 _MFCC_ROLE_LABELS: list[str] = [
-    "energy",        # 01
-    "tonal char",    # 02
-    "tonal char",    # 03
-    "mid timbre",    # 04
-    "mid timbre",    # 05
-    "mid timbre",    # 06
-    "mid timbre",    # 07
+    "energy",  # 01
+    "tonal char",  # 02
+    "tonal char",  # 03
+    "mid timbre",  # 04
+    "mid timbre",  # 05
+    "mid timbre",  # 06
+    "mid timbre",  # 07
     "fine texture",  # 08
     "fine texture",  # 09
     "fine texture",  # 10
@@ -109,6 +109,7 @@ _MFCC_ROLE_LABELS: list[str] = [
 # Source: AUDIO_QA_Phased_Plan.md, Phase 3, Task 3.2
 # ---------------------------------------------------------------------------
 
+
 def _get_flag_label(feature: str, delta: float) -> str:
     """
     Return the plain-English deviation label for a flagged feature.
@@ -118,26 +119,26 @@ def _get_flag_label(feature: str, delta: float) -> str:
     if feature == "lufs":
         return (
             "Chunk is quieter than reference — energy/intensity mismatch"
-            if delta < 0 else
-            "Chunk is louder than reference — may clip or dominate assembly"
+            if delta < 0
+            else "Chunk is louder than reference — may clip or dominate assembly"
         )
     if feature == "low_mid_energy":
         return (
             "Low-mid buildup — possible muddiness (200–500 Hz)"
-            if delta > 0 else
-            "Low-mid energy below reference — mix may sound thin in body range"
+            if delta > 0
+            else "Low-mid energy below reference — mix may sound thin in body range"
         )
     if feature == "stereo_width":
         return (
             "Stereo image narrower than reference — sounds more closed/mono"
-            if delta < 0 else
-            "Stereo image wider than reference — spatial feel has broadened"
+            if delta < 0
+            else "Stereo image wider than reference — spatial feel has broadened"
         )
     if feature == "spectral_centroid":
         return (
             "Mix darker than reference — tonal weight shifted down"
-            if delta < 0 else
-            "Mix brighter than reference — possible harshness"
+            if delta < 0
+            else "Mix brighter than reference — possible harshness"
         )
     if feature == "tempo":
         return "Tempo drift — pacing inconsistency"
@@ -146,47 +147,50 @@ def _get_flag_label(feature: str, delta: float) -> str:
     if feature == "dynamic_range":
         return (
             "Over-compressed — dynamic range squashed vs reference"
-            if delta < 0 else
-            "Dynamic range expanded — less compressed than reference"
+            if delta < 0
+            else "Dynamic range expanded — less compressed than reference"
         )
     if feature == "presence_band":
         return (
             "Vocal presence reduced — less cut-through in 1k–4kHz range"
-            if delta < 0 else
-            "Presence band elevated — vocal forward or mid-range peaked"
+            if delta < 0
+            else "Presence band elevated — vocal forward or mid-range peaked"
         )
     if feature == "high_shelf":
         return (
             "Excessive high-frequency air or harshness above 8kHz"
-            if delta > 0 else
-            "High shelf reduced — less air, possibly duller above 8kHz"
+            if delta > 0
+            else "High shelf reduced — less air, possibly duller above 8kHz"
         )
     if feature == "zcr":
         return (
             "Elevated noise floor or distortion indicator"
-            if delta > 0 else
-            "Zero crossing rate below reference — smoother signal"
+            if delta > 0
+            else "Zero crossing rate below reference — smoother signal"
         )
     if feature == "rms":
         return (
             "RMS energy below reference — chunk may sound quieter overall"
-            if delta < 0 else
-            "RMS energy above reference — chunk louder than reference average"
+            if delta < 0
+            else "RMS energy above reference — chunk louder than reference average"
         )
     if feature == "spectral_rolloff":
         return (
             "Spectral rolloff lower — high-frequency content reduced"
-            if delta < 0 else
-            "Spectral rolloff higher — more high-frequency content than reference"
+            if delta < 0
+            else "Spectral rolloff higher — more high-frequency content than reference"
         )
     # Generic fallback for any feature not in the map
     direction = "above" if delta > 0 else "below"
-    return f"{_FEATURE_DISPLAY.get(feature, feature)} is {direction} reference threshold"
+    return (
+        f"{_FEATURE_DISPLAY.get(feature, feature)} is {direction} reference threshold"
+    )
 
 
 # ---------------------------------------------------------------------------
 # Formatting helpers
 # ---------------------------------------------------------------------------
+
 
 def _fmt(feature: str, value: float) -> str:
     """Format a scalar value using the feature's display format."""
@@ -195,7 +199,7 @@ def _fmt(feature: str, value: float) -> str:
 
 def _fmt_delta(feature: str, delta: float) -> str:
     """Format a delta with explicit +/- sign."""
-    fmt  = _FEATURE_FMT.get(feature, ".4f")
+    fmt = _FEATURE_FMT.get(feature, ".4f")
     sign = "+" if delta >= 0 else ""
     return f"{sign}{format(delta, fmt)}"
 
@@ -203,13 +207,14 @@ def _fmt_delta(feature: str, delta: float) -> str:
 def _fmt_delta_with_unit(feature: str, delta: float) -> str:
     """Delta formatted with unit suffix — used in LLM summary block."""
     unit = _FEATURE_UNITS.get(feature, "")
-    d    = _fmt_delta(feature, delta)
+    d = _fmt_delta(feature, delta)
     return f"{d} {unit}".strip()
 
 
 # ---------------------------------------------------------------------------
 # Report section builders
 # ---------------------------------------------------------------------------
+
 
 def _section_header(chunk_name: str, consistency_score: float) -> str:
     score_int = int(consistency_score)
@@ -222,54 +227,55 @@ def _section_header(chunk_name: str, consistency_score: float) -> str:
     else:
         verdict = "FAIL — significant drift from reference"
 
-    return "\n".join([
-        f"# Audio QA Report — {chunk_name}",
-        "",
-        f"| | |",
-        f"|---|---|",
-        f"| **Consistency Score** | **{consistency_score}/100** |",
-        f"| **Verdict** | {verdict} |",
-        "",
-    ])
+    return "\n".join(
+        [
+            f"# Audio QA Report — {chunk_name}",
+            "",
+            f"| | |",
+            f"|---|---|",
+            f"| **Consistency Score** | **{consistency_score}/100** |",
+            f"| **Verdict** | {verdict} |",
+            "",
+        ]
+    )
 
 
 def _section_feature_table(analysis: dict, score: dict) -> str:
     chunk_vals = analysis["chunk_values"]
-    ref_vals   = analysis["reference_values"]
-    deltas     = analysis["deltas"]
-    scored     = score["scored_features"]
+    ref_vals = analysis["reference_values"]
+    deltas = analysis["deltas"]
+    scored = score["scored_features"]
 
     # Build rows — mfcc_distance handled specially (baseline = 0.0)
     rows: list[tuple] = []
     for key in _SCORE_KEYS:
-        display    = _FEATURE_DISPLAY[key]
-        unit       = _FEATURE_UNITS[key]
+        display = _FEATURE_DISPLAY[key]
+        unit = _FEATURE_UNITS[key]
         is_flagged = scored[key]["flagged"]
 
         if key == "mfcc_distance":
-            ref_v   = 0.0
+            ref_v = 0.0
             chunk_v = deltas["mfcc_distance"]
-            delta   = deltas["mfcc_distance"]
+            delta = deltas["mfcc_distance"]
         else:
-            ref_v   = ref_vals[key]
+            ref_v = ref_vals[key]
             chunk_v = chunk_vals[key]
-            delta   = deltas[key]
+            delta = deltas[key]
 
-        rows.append((
-            display,
-            unit,
-            _fmt(key, ref_v),
-            _fmt(key, chunk_v),
-            _fmt_delta(key, delta),
-            "⚠" if is_flagged else "✓",
-        ))
+        rows.append(
+            (
+                display,
+                unit,
+                _fmt(key, ref_v),
+                _fmt(key, chunk_v),
+                _fmt_delta(key, delta),
+                "⚠" if is_flagged else "✓",
+            )
+        )
 
     # Dynamic column widths — ensures alignment regardless of value length
     hdr = ("Feature", "Unit", "Reference", "Chunk", "Delta", "Flag")
-    widths = [
-        max(len(hdr[i]), max(len(r[i]) for r in rows))
-        for i in range(len(hdr))
-    ]
+    widths = [max(len(hdr[i]), max(len(r[i]) for r in rows)) for i in range(len(hdr))]
 
     def _row(*cells):
         return (
@@ -298,7 +304,7 @@ def _section_feature_table(analysis: dict, score: dict) -> str:
 
 
 def _section_mfcc_detail(analysis: dict) -> str:
-    ref_mfccs   = analysis["reference_values"]["mfcc"]
+    ref_mfccs = analysis["reference_values"]["mfcc"]
     chunk_mfccs = analysis["chunk_values"]["mfcc"]
     mfcc_deltas = analysis["deltas"]["mfcc_deltas"]
 
@@ -321,12 +327,18 @@ def _section_mfcc_detail(analysis: dict) -> str:
         )
 
     lines.append("")
+    lines.append(
+        "*Note: `MFCC distance` (scored feature) uses cosine distance on C02–C13 only. "
+        "C01 (energy) is shown above for reference but is excluded from the distance calculation "
+        "to prevent loudness differences from dominating the timbre metric.*"
+    )
+    lines.append("")
     return "\n".join(lines)
 
 
 def _section_flagged_deviations(analysis: dict, score: dict) -> str:
     flagged = score["flagged_features"]
-    deltas  = analysis["deltas"]
+    deltas = analysis["deltas"]
 
     lines = ["## Flagged Deviations", ""]
 
@@ -338,10 +350,10 @@ def _section_flagged_deviations(analysis: dict, score: dict) -> str:
         return "\n".join(lines)
 
     for feature in flagged:
-        delta     = deltas[feature]
-        label     = _get_flag_label(feature, delta)
+        delta = deltas[feature]
+        label = _get_flag_label(feature, delta)
         delta_ctx = _fmt_delta_with_unit(feature, delta)
-        display   = _FEATURE_DISPLAY[feature]
+        display = _FEATURE_DISPLAY[feature]
         lines.append(f"- **{display}** `{delta_ctx}` — {label}")
 
     lines.append("")
@@ -354,8 +366,8 @@ def _section_llm_summary(chunk_name: str, analysis: dict, score: dict) -> str:
     Always present, even when Consistency Score = 100.
     """
     consistency_score = score["consistency_score"]
-    flagged           = score["flagged_features"]
-    deltas            = analysis["deltas"]
+    flagged = score["flagged_features"]
+    deltas = analysis["deltas"]
 
     # Build inner content of the fenced block
     inner: list[str] = [
@@ -366,8 +378,8 @@ def _section_llm_summary(chunk_name: str, analysis: dict, score: dict) -> str:
     if flagged:
         inner.append("Flagged issues:")
         for feature in flagged:
-            delta     = deltas[feature]
-            label     = _get_flag_label(feature, delta)
+            delta = deltas[feature]
+            label = _get_flag_label(feature, delta)
             delta_ctx = _fmt_delta_with_unit(feature, delta)
             inner.append(f"  - {label}  (delta: {delta_ctx})")
     else:
@@ -402,53 +414,66 @@ def _section_llm_summary(chunk_name: str, analysis: dict, score: dict) -> str:
 # Multiple entries per feature are allowed (high vs low cases).
 _PROMPT_IMPLICATIONS: list[tuple] = [
     # feature key         condition               implication text
-    ("low_mid_energy",
-     lambda d: d > 0,
-     "Prompt may lack explicit vocal-forward or mix clarity instruction"),
-
-    ("lufs",
-     lambda d: d < 0,
-     "Suno generated a quieter, more restrained performance — check energy/intensity descriptors"),
-
-    ("lufs",
-     lambda d: d >= 0,
-     "Suno generated a louder, more intense performance — check for words like 'powerful', 'full'"),
-
-    ("stereo_width",
-     lambda d: d < 0,
-     "Prompt may be producing a more intimate/close recording — check spatial descriptors"),
-
-    ("spectral_centroid",
-     lambda d: d < 0,
-     "Mix is darker than reference — prompt may lack brightness or air descriptors"),
-
-    ("spectral_centroid",
-     lambda d: d > 0,
-     "Mix is brighter than reference — check for descriptors pushing high-frequency energy (e.g. 'crisp', 'bright', 'airy'); consider softening or removing them"),
-
-    ("spectral_rolloff",
-     lambda d: d > 0,
-     "More high-frequency content than reference — prompt may be over-specifying brightness or air; check descriptors like 'crisp', 'bright', 'open'"),
-
-    ("spectral_rolloff",
-     lambda d: d < 0,
-     "Less high-frequency content than reference — mix is rolling off earlier than reference; prompt may lack air or presence descriptors"),
-
-    ("presence_band",
-     lambda d: d < 0,
-     "Vocal is less forward — consider adding 'vocal-forward', 'clear vocals', 'intimate'"),
-
-    ("presence_band",
-     lambda d: d > 0,
-     "Vocal presence is elevated above reference — mid-range may be peaked; check for descriptors like 'forward', 'present', 'in-your-face'"),
-
-    ("mfcc_distance",
-     lambda d: True,
-     "Overall timbre has drifted — check whether reference audio was attached to this generation"),
-
-    ("tempo",
-     lambda d: True,
-     "Pacing has changed — Suno may have interpreted rhythm cues differently"),
+    (
+        "low_mid_energy",
+        lambda d: d > 0,
+        "Prompt may lack explicit vocal-forward or mix clarity instruction",
+    ),
+    (
+        "lufs",
+        lambda d: d < 0,
+        "Suno generated a quieter, more restrained performance — check energy/intensity descriptors",
+    ),
+    (
+        "lufs",
+        lambda d: d >= 0,
+        "Suno generated a louder, more intense performance — check for words like 'powerful', 'full'",
+    ),
+    (
+        "stereo_width",
+        lambda d: d < 0,
+        "Prompt may be producing a more intimate/close recording — check spatial descriptors",
+    ),
+    (
+        "spectral_centroid",
+        lambda d: d < 0,
+        "Mix is darker than reference — prompt may lack brightness or air descriptors",
+    ),
+    (
+        "spectral_centroid",
+        lambda d: d > 0,
+        "Mix is brighter than reference — check for descriptors pushing high-frequency energy (e.g. 'crisp', 'bright', 'airy'); consider softening or removing them",
+    ),
+    (
+        "spectral_rolloff",
+        lambda d: d > 0,
+        "More high-frequency content than reference — prompt may be over-specifying brightness or air; check descriptors like 'crisp', 'bright', 'open'",
+    ),
+    (
+        "spectral_rolloff",
+        lambda d: d < 0,
+        "Less high-frequency content than reference — mix is rolling off earlier than reference; prompt may lack air or presence descriptors",
+    ),
+    (
+        "presence_band",
+        lambda d: d < 0,
+        "Vocal is less forward — consider adding 'vocal-forward', 'clear vocals', 'intimate'",
+    ),
+    (
+        "presence_band",
+        lambda d: d > 0,
+        "Vocal presence is elevated above reference — mid-range may be peaked; check for descriptors like 'forward', 'present', 'in-your-face'",
+    ),
+    (
+        "mfcc_distance",
+        lambda d: True,
+        "Overall timbre has drifted — check whether reference audio was attached to this generation",
+    ),
+    (
+        "tempo",
+        lambda d: True,
+        "Pacing has changed — Suno may have interpreted rhythm cues differently",
+    ),
 ]
 
 
@@ -464,7 +489,7 @@ def _section_prompt_implications(analysis: dict, score: dict) -> str:
     _PROMPT_IMPLICATIONS (v1 map from AUDIO_QA_Phased_Plan.md, Phase 5).
     """
     flagged = score["flagged_features"]
-    deltas  = analysis["deltas"]
+    deltas = analysis["deltas"]
 
     lines = ["## Suno Prompt Implications", ""]
 
@@ -478,7 +503,7 @@ def _section_prompt_implications(analysis: dict, score: dict) -> str:
 
     # Collect applicable implications — preserve plan order, deduplicate text
     seen: set[str] = set()
-    implications: list[tuple[str, str]] = []   # (display_name, implication_text)
+    implications: list[tuple[str, str]] = []  # (display_name, implication_text)
 
     for feature_key, condition_fn, implication_text in _PROMPT_IMPLICATIONS:
         if feature_key not in flagged:
@@ -519,6 +544,7 @@ def _section_prompt_implications(analysis: dict, score: dict) -> str:
 # Public API
 # ---------------------------------------------------------------------------
 
+
 def generate_report(chunk_name: str, analysis: dict, score: dict) -> str:
     """
     Generate a full Markdown QA report for one chunk.
@@ -532,13 +558,15 @@ def generate_report(chunk_name: str, analysis: dict, score: dict) -> str:
         str — complete Markdown report, ready to print or write to file.
               All five sections are always present.
     """
-    return "\n".join([
-        _section_header(chunk_name, score["consistency_score"]),
-        _section_feature_table(analysis, score),
-        _section_mfcc_detail(analysis),
-        _section_flagged_deviations(analysis, score),
-        _section_llm_summary(chunk_name, analysis, score),
-    ])
+    return "\n".join(
+        [
+            _section_header(chunk_name, score["consistency_score"]),
+            _section_feature_table(analysis, score),
+            _section_mfcc_detail(analysis),
+            _section_flagged_deviations(analysis, score),
+            _section_llm_summary(chunk_name, analysis, score),
+        ]
+    )
 
 
 def generate_prompt_debug_report(chunk_name: str, analysis: dict, score: dict) -> str:
@@ -559,14 +587,16 @@ def generate_prompt_debug_report(chunk_name: str, analysis: dict, score: dict) -
               plus the Suno Prompt Implications section at the end.
               All sections are always present.
     """
-    return "\n".join([
-        _section_header(chunk_name, score["consistency_score"]),
-        _section_feature_table(analysis, score),
-        _section_mfcc_detail(analysis),
-        _section_flagged_deviations(analysis, score),
-        _section_llm_summary(chunk_name, analysis, score),
-        _section_prompt_implications(analysis, score),
-    ])
+    return "\n".join(
+        [
+            _section_header(chunk_name, score["consistency_score"]),
+            _section_feature_table(analysis, score),
+            _section_mfcc_detail(analysis),
+            _section_flagged_deviations(analysis, score),
+            _section_llm_summary(chunk_name, analysis, score),
+            _section_prompt_implications(analysis, score),
+        ]
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -608,63 +638,63 @@ def _get_ceiling_flag_label(feature: str, delta: float) -> str:
         return (
             "Chunk is significantly quieter than commercial production norms — "
             "possible vocal burial. *(Hygiene flag, not a loudness target.)*"
-            if delta < 0 else
-            "Chunk is significantly louder than commercial reference — "
+            if delta < 0
+            else "Chunk is significantly louder than commercial reference — "
             "possible clipping or overload. *(Hygiene flag, not a loudness target.)*"
         )
     if feature == "rms":
         return (
             "Chunk energy significantly below commercial reference — "
             "may sound weak or underproduced. *(Hygiene flag.)*"
-            if delta < 0 else
-            "Chunk energy significantly above commercial reference. *(Hygiene flag.)*"
+            if delta < 0
+            else "Chunk energy significantly above commercial reference. *(Hygiene flag.)*"
         )
     if feature == "dynamic_range":
         return (
             "Dynamic range severely squashed vs commercial reference — "
             "likely over-compressed. *(Hygiene flag.)*"
-            if delta < 0 else
-            "Dynamic range severely expanded vs commercial reference — "
+            if delta < 0
+            else "Dynamic range severely expanded vs commercial reference — "
             "unusually uncompressed for production context. *(Hygiene flag.)*"
         )
     if feature == "spectral_centroid":
         return (
             "Mix extremely dark vs commercial reference — "
             "tonal balance may be a production issue. *(Hygiene flag.)*"
-            if delta < 0 else
-            "Mix extremely bright vs commercial reference — "
+            if delta < 0
+            else "Mix extremely bright vs commercial reference — "
             "possible harshness or production imbalance. *(Hygiene flag.)*"
         )
     if feature == "spectral_rolloff":
         return (
             "High-frequency content severely reduced vs commercial reference. "
             "*(Hygiene flag.)*"
-            if delta < 0 else
-            "High-frequency content severely elevated vs commercial reference. "
+            if delta < 0
+            else "High-frequency content severely elevated vs commercial reference. "
             "*(Hygiene flag.)*"
         )
     if feature == "low_mid_energy":
         return (
             "Severe low-mid buildup vs commercial reference — "
             "possible muddiness (200–500 Hz). *(Hygiene flag.)*"
-            if delta > 0 else
-            "Low-mid energy severely below commercial reference — "
+            if delta > 0
+            else "Low-mid energy severely below commercial reference — "
             "mix may sound thin in the body range. *(Hygiene flag.)*"
         )
     if feature == "presence_band":
         return (
             "Vocal severely buried vs commercial reference — "
             "very low cut-through in 1k–4kHz range. *(Hygiene flag.)*"
-            if delta < 0 else
-            "Vocal presence severely elevated vs commercial reference — "
+            if delta < 0
+            else "Vocal presence severely elevated vs commercial reference — "
             "strong mid-range peak. *(Hygiene flag.)*"
         )
     if feature == "zcr":
         return (
             "Significantly elevated noise or distortion vs commercial reference. "
             "*(Hygiene flag.)*"
-            if delta > 0 else
-            "Zero crossing rate severely below commercial reference. *(Hygiene flag.)*"
+            if delta > 0
+            else "Zero crossing rate severely below commercial reference. *(Hygiene flag.)*"
         )
     if feature == "mfcc_distance":
         return (
@@ -680,12 +710,12 @@ def _get_ceiling_flag_label(feature: str, delta: float) -> str:
 
 
 def generate_ceiling_report(
-    chunk_name:        str,
-    ceiling_name:      str,
-    chunk_feats:       dict,
-    ceiling_feats:     dict,
-    deltas:            dict,
-    red_flags:         list,
+    chunk_name: str,
+    ceiling_name: str,
+    chunk_feats: dict,
+    ceiling_feats: dict,
+    deltas: dict,
+    red_flags: list,
     ceiling_thresholds: dict,
 ) -> str:
     """
@@ -714,71 +744,74 @@ def generate_ceiling_report(
     Returns:
         str — complete Markdown ceiling report.
     """
-    n_checked  = len(_CEILING_FEATURE_ORDER)
-    n_flags    = len(red_flags)
+    n_checked = len(_CEILING_FEATURE_ORDER)
+    n_flags = len(red_flags)
 
     # ------------------------------------------------------------------
     # Section 1 — Header + mandatory disclaimer
     # ------------------------------------------------------------------
-    flag_verdict = "No red flags raised." if n_flags == 0 else f"{n_flags} red flag(s) raised."
+    flag_verdict = (
+        "No red flags raised." if n_flags == 0 else f"{n_flags} red flag(s) raised."
+    )
 
-    header = "\n".join([
-        f"# Audio QA: Ceiling Analysis — {chunk_name}",
-        "",
-        "> ⚠ **PRODUCTION HYGIENE CHECK — NOT A STYLE TARGET**",
-        f"> This report compares **{chunk_name}** against a commercial reference",
-        f"> (`{ceiling_name}`) to detect gross production failures only.",
-        "> These are **red flags**, not genre norms. Features excluded below",
-        "> are genre-specific and are intentionally not compared.",
-        "",
-        "| | |",
-        "|---|---|",
-        f"| **Chunk** | {chunk_name} |",
-        f"| **Commercial reference** | {ceiling_name} |",
-        f"| **Features checked** | {n_checked} of 12 |",
-        f"| **Red flags raised** | {n_flags} — {flag_verdict} |",
-        "",
-    ])
+    header = "\n".join(
+        [
+            f"# Audio QA: Ceiling Analysis — {chunk_name}",
+            "",
+            "> ⚠ **PRODUCTION HYGIENE CHECK — NOT A STYLE TARGET**",
+            f"> This report compares **{chunk_name}** against a commercial reference",
+            f"> (`{ceiling_name}`) to detect gross production failures only.",
+            "> These are **red flags**, not genre norms. Features excluded below",
+            "> are genre-specific and are intentionally not compared.",
+            "",
+            "| | |",
+            "|---|---|",
+            f"| **Chunk** | {chunk_name} |",
+            f"| **Commercial reference** | {ceiling_name} |",
+            f"| **Features checked** | {n_checked} of 12 |",
+            f"| **Red flags raised** | {n_flags} — {flag_verdict} |",
+            "",
+        ]
+    )
 
     # ------------------------------------------------------------------
     # Section 2 — Feature comparison table
     # ------------------------------------------------------------------
     rows: list[tuple] = []
     for key in _CEILING_FEATURE_ORDER:
-        display   = _FEATURE_DISPLAY[key]
-        unit      = _FEATURE_UNITS[key]
-        delta     = deltas[key]
+        display = _FEATURE_DISPLAY[key]
+        unit = _FEATURE_UNITS[key]
+        delta = deltas[key]
         threshold = ceiling_thresholds[key]
         is_flagged = key in red_flags
 
         fmt = _FEATURE_FMT.get(key, ".4f")
 
         if key == "mfcc_distance":
-            ref_str   = format(0.0, fmt)
+            ref_str = format(0.0, fmt)
             chunk_str = format(delta, fmt)
         else:
-            ref_str   = format(ceiling_feats[key], fmt)
+            ref_str = format(ceiling_feats[key], fmt)
             chunk_str = format(chunk_feats[key], fmt)
 
-        sign      = "+" if delta >= 0 else ""
+        sign = "+" if delta >= 0 else ""
         delta_str = f"{sign}{format(delta, fmt)}"
-        thr_str   = f"±{format(threshold, fmt)}"
+        thr_str = f"±{format(threshold, fmt)}"
 
-        rows.append((
-            display,
-            unit,
-            ref_str,
-            chunk_str,
-            delta_str,
-            thr_str,
-            "⚠" if is_flagged else "✓",
-        ))
+        rows.append(
+            (
+                display,
+                unit,
+                ref_str,
+                chunk_str,
+                delta_str,
+                thr_str,
+                "⚠" if is_flagged else "✓",
+            )
+        )
 
-    hdr    = ("Feature", "Unit", "Ceiling Ref", "Chunk", "Delta", "Threshold", "Flag")
-    widths = [
-        max(len(hdr[i]), max(len(r[i]) for r in rows))
-        for i in range(len(hdr))
-    ]
+    hdr = ("Feature", "Unit", "Ceiling Ref", "Chunk", "Delta", "Threshold", "Flag")
+    widths = [max(len(hdr[i]), max(len(r[i]) for r in rows)) for i in range(len(hdr))]
 
     def _row(*cells):
         return (
@@ -802,8 +835,7 @@ def generate_ceiling_report(
     )
 
     excluded_note = (
-        f"*Not compared (genre-specific): "
-        f"{', '.join(_CEILING_EXCLUDED_DISPLAY)}.*"
+        f"*Not compared (genre-specific): " f"{', '.join(_CEILING_EXCLUDED_DISPLAY)}.*"
     )
 
     table_lines = ["## Feature Comparison (Production Hygiene Features Only)", ""]
@@ -825,13 +857,13 @@ def generate_ceiling_report(
         ]
     else:
         for feature in red_flags:
-            delta   = deltas[feature]
-            label   = _get_ceiling_flag_label(feature, delta)
+            delta = deltas[feature]
+            label = _get_ceiling_flag_label(feature, delta)
             display = _FEATURE_DISPLAY[feature]
-            unit    = _FEATURE_UNITS.get(feature, "")
-            sign    = "+" if delta >= 0 else ""
-            fmt     = _FEATURE_FMT.get(feature, ".4f")
-            d_str   = f"{sign}{format(delta, fmt)}"
+            unit = _FEATURE_UNITS.get(feature, "")
+            sign = "+" if delta >= 0 else ""
+            fmt = _FEATURE_FMT.get(feature, ".4f")
+            d_str = f"{sign}{format(delta, fmt)}"
             d_with_unit = f"{d_str} {unit}".strip()
             flag_lines.append(f"- **{display}** `{d_with_unit}` — {label}")
         flag_lines.append("")
@@ -850,14 +882,14 @@ def generate_ceiling_report(
     if red_flags:
         inner.append("Red flags:")
         for feature in red_flags:
-            delta   = deltas[feature]
+            delta = deltas[feature]
             display = _FEATURE_DISPLAY[feature]
-            unit    = _FEATURE_UNITS.get(feature, "")
-            sign    = "+" if delta >= 0 else ""
-            fmt     = _FEATURE_FMT.get(feature, ".4f")
-            d_str   = f"{sign}{format(delta, fmt)}"
+            unit = _FEATURE_UNITS.get(feature, "")
+            sign = "+" if delta >= 0 else ""
+            fmt = _FEATURE_FMT.get(feature, ".4f")
+            d_str = f"{sign}{format(delta, fmt)}"
             d_with_unit = f"{d_str} {unit}".strip()
-            label   = _get_ceiling_flag_label(feature, delta)
+            label = _get_ceiling_flag_label(feature, delta)
             # Strip markdown bold/italics for plain-text block
             plain_label = label.replace("*(", "(").replace(")*", ")").replace("**", "")
             inner.append(f"  - {display} ({d_with_unit}): {plain_label}")

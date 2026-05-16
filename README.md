@@ -208,19 +208,25 @@ To recalibrate: edit `config.py` directly — `THRESHOLDS` and `WEIGHTS` are pla
 
 **Ceiling thresholds** (`CEILING_THRESHOLDS` in `config.py`) are separate from QA thresholds and are not covered by the integrity check. They are intentionally wide.
 
----
+### Presence Band Interpretation Rule
+
+When a `presence_band` flag fires, cross-reference it with `low_mid_energy` in the same chunk's report before treating it as a vocal recession:
+
+- If `presence_band` drops **and** `low_mid_energy` spikes: the drop is likely caused by low-end energy inflating the total spectral power denominator, not by a genuinely recessed vocal. Check for bass buildup or proximity-effect rumble in this chunk.
+- If `presence_band` drops **alone** (low-mid is within threshold): the vocal may genuinely have less 1k–4kHz cut-through. Consider re-generation or prompt adjustment.
+
+Source: Expert B (Mastering), Session 8 consultation.
 
 ## Known Limitations
 
 - **Tempo disabled.** `librosa.beat.tempo()` produces implausible estimates on non-rhythmic Arabic poetry. Weight is 0.0 and threshold is 999.0. Tempo is extracted and displayed but does not affect the Consistency Score.
 - **Prompt implication map v1.1 covers 8 features.** `rms`, `dynamic_range`, and `zcr` have no map entry — they do not translate cleanly to Suno prompt language. If these are the only flagged features, a fallback note renders in the Prompt Implications section.
 - **Mono chunks.** If a chunk is mono and the reference is stereo, `stereo_width` delta is `0.0 − reference_width` and will be negative. This is logged with an INFO note. It does not crash.
+- **Stereo width threshold requires recalibration.** The `stereo_width` metric was corrected in Session 8 from an absolute amplitude formula (`mean(abs(L−R))`) to an amplitude-normalised Side/Mid RMS ratio. The threshold (`±0.15` in `config.py`) was calibrated against the old formula and is no longer valid. Do not treat stereo width flags as authoritative until `THRESHOLDS["stereo_width"]` has been recalibrated against a batch run using the new metric.
 - **MP3 acceptable.** Suno compression artifacts are uniform across chunks from the same project and will not skew comparative deltas.
 - **No stem separation.** Vocal isolation (Demucs etc.) is out of scope. All features reflect the full mix, including accompaniment.
 - **Ceiling analysis is single-chunk only.** `--ceiling` with `--batch` errors explicitly.
 - **Commercial track genre mismatch.** The ceiling analysis is designed specifically for this. Genre-specific features are excluded. The report framing is mandatory — do not remove the disclaimer.
-
----
 
 ## What the Script Does NOT Do
 

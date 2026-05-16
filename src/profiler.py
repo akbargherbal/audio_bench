@@ -12,15 +12,18 @@ Does NOT modify extractor.py — calls it, does not refactor it.
 import json
 import os
 import numpy as np
+from scipy.spatial.distance import cosine
 
 from extractor import extract_features
-
 
 # ---------------------------------------------------------------------------
 # Task 2.1 — Reference Profile Builder
 # ---------------------------------------------------------------------------
 
-def build_reference_profile(filepath: str, save_path: str = "reference_profile.json") -> dict:
+
+def build_reference_profile(
+    filepath: str, save_path: str = "reference_profile.json"
+) -> dict:
     """
     Extract features from the reference track and return the profile dict.
 
@@ -72,6 +75,7 @@ def load_reference_profile(json_path: str) -> dict:
 # Task 2.2 — Chunk Analyser
 # ---------------------------------------------------------------------------
 
+
 def analyze_chunk(chunk_path: str, reference_profile: dict) -> dict:
     """
     Extract features from a chunk and compute per-feature deltas against the
@@ -114,42 +118,51 @@ def analyze_chunk(chunk_path: str, reference_profile: dict) -> dict:
     # All scalar features: delta = chunk_value - reference_value
     # ------------------------------------------------------------------
     scalar_keys = [
-        "lufs", "rms", "dynamic_range",
-        "spectral_centroid", "spectral_rolloff",
-        "low_mid_energy", "presence_band", "high_shelf",
-        "stereo_width", "tempo", "zcr",
+        "lufs",
+        "rms",
+        "dynamic_range",
+        "spectral_centroid",
+        "spectral_rolloff",
+        "low_mid_energy",
+        "presence_band",
+        "high_shelf",
+        "stereo_width",
+        "tempo",
+        "zcr",
     ]
 
     deltas = {}
     for key in scalar_keys:
         chunk_val = chunk_feats[key]
-        ref_val   = ref_values[key]
+        ref_val = ref_values[key]
         deltas[key] = round(chunk_val - ref_val, 8)
 
     # ------------------------------------------------------------------
     # MFCC deltas — two representations
     # ------------------------------------------------------------------
     chunk_mfccs = np.array(chunk_feats["mfcc"])
-    ref_mfccs   = np.array(ref_values["mfcc"])
+    ref_mfccs = np.array(ref_values["mfcc"])
 
-    mfcc_deltas   = [round(float(d), 6) for d in (chunk_mfccs - ref_mfccs)]
-    mfcc_distance = round(float(np.mean(np.abs(chunk_mfccs - ref_mfccs))), 6)
+    mfcc_deltas = [round(float(d), 6) for d in (chunk_mfccs - ref_mfccs)]
+    mfcc_distance = round(float(cosine(chunk_mfccs[1:], ref_mfccs[1:])), 6)
 
-    deltas["mfcc_distance"] = mfcc_distance   # scalar — used in scoring
-    deltas["mfcc_deltas"]   = mfcc_deltas     # list of 13 — used in report
+    deltas["mfcc_distance"] = mfcc_distance  # scalar — used in scoring
+    deltas["mfcc_deltas"] = mfcc_deltas  # list of 13 — used in report
 
     # ------------------------------------------------------------------
     # Mono/stereo mismatch note
     # ------------------------------------------------------------------
     if chunk_feats["stereo_width"] == 0.0 and ref_values["stereo_width"] > 0.0:
-        print(f"  [INFO] Chunk is mono, reference is stereo — "
-              f"stereo_width delta = {deltas['stereo_width']:.6f} (chunk is mono)")
+        print(
+            f"  [INFO] Chunk is mono, reference is stereo — "
+            f"stereo_width delta = {deltas['stereo_width']:.6f} (chunk is mono)"
+        )
 
     return {
-        "chunk_path":       chunk_path,
-        "chunk_values":     chunk_feats,
+        "chunk_path": chunk_path,
+        "chunk_values": chunk_feats,
         "reference_values": ref_values,
-        "deltas":           deltas,
+        "deltas": deltas,
     }
 
 
@@ -167,10 +180,12 @@ if __name__ == "__main__":
 
     if len(sys.argv) < 3:
         print("Usage: python profiler.py <reference.mp3> <chunk.mp3>")
-        print("  Tip: pass the reference as both arguments to run the self-identity check.")
+        print(
+            "  Tip: pass the reference as both arguments to run the self-identity check."
+        )
         sys.exit(1)
 
-    ref_path   = sys.argv[1]
+    ref_path = sys.argv[1]
     chunk_path = sys.argv[2]
 
     print(f"\n{'='*64}")
@@ -185,11 +200,12 @@ if __name__ == "__main__":
     print(f"\n[2/3] Self-identity check (reference vs itself)...")
     self_analysis = analyze_chunk(ref_path, ref_profile)
 
-    self_deltas   = self_analysis["deltas"]
+    self_deltas = self_analysis["deltas"]
     mfcc_self_dist = self_deltas["mfcc_distance"]
 
     scalar_self_failures = {
-        k: v for k, v in self_deltas.items()
+        k: v
+        for k, v in self_deltas.items()
         if k not in ("mfcc_distance", "mfcc_deltas") and abs(v) > 1e-9
     }
 
@@ -202,7 +218,9 @@ if __name__ == "__main__":
         sys.exit(1)
 
     if scalar_self_failures:
-        print(f"  [WARN] Non-zero scalar deltas on self-comparison (may be float noise):")
+        print(
+            f"  [WARN] Non-zero scalar deltas on self-comparison (may be float noise):"
+        )
         for k, v in scalar_self_failures.items():
             print(f"    {k}: {v}")
     else:
@@ -219,10 +237,17 @@ if __name__ == "__main__":
     rv = analysis["reference_values"]
 
     scalar_keys = [
-        "lufs", "rms", "dynamic_range",
-        "spectral_centroid", "spectral_rolloff",
-        "low_mid_energy", "presence_band", "high_shelf",
-        "stereo_width", "tempo", "zcr",
+        "lufs",
+        "rms",
+        "dynamic_range",
+        "spectral_centroid",
+        "spectral_rolloff",
+        "low_mid_energy",
+        "presence_band",
+        "high_shelf",
+        "stereo_width",
+        "tempo",
+        "zcr",
     ]
 
     print(f"\n  {'Feature':<22} {'Reference':>14} {'Chunk':>14} {'Delta':>14}")
@@ -246,8 +271,10 @@ if __name__ == "__main__":
     print(f"  Phase 2 checks:")
 
     lufs_neg_delta = d["lufs"] < 0
-    print(f"  Negative LUFS delta = chunk quieter than ref : "
-          f"{'yes' if lufs_neg_delta else 'no (chunk is louder)'}")
+    print(
+        f"  Negative LUFS delta = chunk quieter than ref : "
+        f"{'yes' if lufs_neg_delta else 'no (chunk is louder)'}"
+    )
     print(f"  MFCC distance (overall timbre drift)        : {d['mfcc_distance']:.4f}")
     print(f"  Stereo width delta                          : {d['stereo_width']:+.6f}")
     print(f"\n  Phase 2 PASSED -- delta table looks correct.")

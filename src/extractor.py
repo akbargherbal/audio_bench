@@ -29,7 +29,10 @@ warnings.filterwarnings("ignore")  # suppress librosa / numba routine noise
 # Internal helpers
 # ---------------------------------------------------------------------------
 
-def _band_energy_fraction(y_mono: np.ndarray, sr: int, f_low: float, f_high: float) -> float:
+
+def _band_energy_fraction(
+    y_mono: np.ndarray, sr: int, f_low: float, f_high: float
+) -> float:
     """
     Fraction of total spectral power in the frequency band [f_low, f_high) Hz.
 
@@ -65,6 +68,7 @@ def _band_energy_fraction(y_mono: np.ndarray, sr: int, f_low: float, f_high: flo
 # Public API
 # ---------------------------------------------------------------------------
 
+
 def extract_features(filepath: str) -> dict:
     """
     Load one audio file (WAV or MP3) and return a flat dict of all 12 features.
@@ -97,11 +101,17 @@ def extract_features(filepath: str) -> dict:
     if is_stereo:
         y_mono = librosa.to_mono(y)
         L, R = y[0], y[1]
-        stereo_width = float(np.mean(np.abs(L - R)))
+        mid = (L + R) / 2.0
+        side = (L - R) / 2.0
+        stereo_width = float(
+            np.sqrt(np.mean(side**2)) / (np.sqrt(np.mean(mid**2)) + 1e-9)
+        )
     else:
         y_mono = y
         stereo_width = 0.0
-        print(f"  [INFO] {filepath} is mono — stereo_width fixed at 0.0 (known limitation)")
+        print(
+            f"  [INFO] {filepath} is mono — stereo_width fixed at 0.0 (known limitation)"
+        )
 
     # ------------------------------------------------------------------
     # LUFS — pyloudnorm requires float64, shape (N,) or (N, 2)
@@ -120,7 +130,7 @@ def extract_features(filepath: str) -> dict:
     # Dynamic range — crest factor in dB (peak / RMS)
     # ------------------------------------------------------------------
     peak = float(np.max(np.abs(y_mono)))
-    rms_raw = float(np.sqrt(np.mean(y_mono ** 2)))
+    rms_raw = float(np.sqrt(np.mean(y_mono**2)))
     if rms_raw > 0.0:
         dynamic_range = float(20.0 * np.log10(peak / rms_raw))
     else:
@@ -131,15 +141,15 @@ def extract_features(filepath: str) -> dict:
     # Spectral centroid and rolloff
     # ------------------------------------------------------------------
     spectral_centroid = float(librosa.feature.spectral_centroid(y=y_mono, sr=sr).mean())
-    spectral_rolloff  = float(librosa.feature.spectral_rolloff(y=y_mono, sr=sr).mean())
+    spectral_rolloff = float(librosa.feature.spectral_rolloff(y=y_mono, sr=sr).mean())
 
     # ------------------------------------------------------------------
     # Band energies — fraction of total spectral power [0, 1]
     # Nyquist = sr / 2; high_shelf upper bound capped there
     # ------------------------------------------------------------------
-    low_mid_energy = _band_energy_fraction(y_mono, sr, 200.0,  500.0)
-    presence_band  = _band_energy_fraction(y_mono, sr, 1000.0, 4000.0)
-    high_shelf     = _band_energy_fraction(y_mono, sr, 8000.0, sr / 2.0)
+    low_mid_energy = _band_energy_fraction(y_mono, sr, 200.0, 500.0)
+    presence_band = _band_energy_fraction(y_mono, sr, 1000.0, 4000.0)
+    high_shelf = _band_energy_fraction(y_mono, sr, 8000.0, sr / 2.0)
 
     # ------------------------------------------------------------------
     # Tempo — unreliable on non-rhythmic Arabic poetry; log, never error
@@ -154,7 +164,7 @@ def extract_features(filepath: str) -> dict:
     # MFCCs — 13 coefficients, mean across time frames
     # ------------------------------------------------------------------
     mfcc_matrix = librosa.feature.mfcc(y=y_mono, sr=sr, n_mfcc=13)
-    mfcc_list   = [float(v) for v in mfcc_matrix.mean(axis=1)]
+    mfcc_list = [float(v) for v in mfcc_matrix.mean(axis=1)]
 
     # ------------------------------------------------------------------
     # Zero crossing rate
@@ -162,18 +172,18 @@ def extract_features(filepath: str) -> dict:
     zcr = float(librosa.feature.zero_crossing_rate(y_mono).mean())
 
     return {
-        "lufs":              lufs,
-        "rms":               rms,
-        "dynamic_range":     dynamic_range,
+        "lufs": lufs,
+        "rms": rms,
+        "dynamic_range": dynamic_range,
         "spectral_centroid": spectral_centroid,
-        "spectral_rolloff":  spectral_rolloff,
-        "low_mid_energy":    low_mid_energy,
-        "presence_band":     presence_band,
-        "high_shelf":        high_shelf,
-        "stereo_width":      stereo_width,
-        "tempo":             tempo,
-        "mfcc":              mfcc_list,
-        "zcr":               zcr,
+        "spectral_rolloff": spectral_rolloff,
+        "low_mid_energy": low_mid_energy,
+        "presence_band": presence_band,
+        "high_shelf": high_shelf,
+        "stereo_width": stereo_width,
+        "tempo": tempo,
+        "mfcc": mfcc_list,
+        "zcr": zcr,
     }
 
 
@@ -183,13 +193,13 @@ def extract_features(filepath: str) -> dict:
 # ---------------------------------------------------------------------------
 
 _MFCC_LABELS = [
-    "energy",        # 01
-    "tonal char",    # 02
-    "tonal char",    # 03
-    "mid timbre",    # 04
-    "mid timbre",    # 05
-    "mid timbre",    # 06
-    "mid timbre",    # 07
+    "energy",  # 01
+    "tonal char",  # 02
+    "tonal char",  # 03
+    "mid timbre",  # 04
+    "mid timbre",  # 05
+    "mid timbre",  # 06
+    "mid timbre",  # 07
     "fine texture",  # 08
     "fine texture",  # 09
     "fine texture",  # 10
@@ -215,23 +225,30 @@ if __name__ == "__main__":
     mfccs = feats.pop("mfcc")
 
     scalar_order = [
-        "lufs", "rms", "dynamic_range",
-        "spectral_centroid", "spectral_rolloff",
-        "low_mid_energy", "presence_band", "high_shelf",
-        "stereo_width", "tempo", "zcr",
+        "lufs",
+        "rms",
+        "dynamic_range",
+        "spectral_centroid",
+        "spectral_rolloff",
+        "low_mid_energy",
+        "presence_band",
+        "high_shelf",
+        "stereo_width",
+        "tempo",
+        "zcr",
     ]
     notes = {
-        "lufs":              "LUFS (must be negative)",
-        "rms":               "",
-        "dynamic_range":     "dB",
+        "lufs": "LUFS (must be negative)",
+        "rms": "",
+        "dynamic_range": "dB",
         "spectral_centroid": "Hz",
-        "spectral_rolloff":  "Hz",
-        "low_mid_energy":    "fraction of total power [0-1]",
-        "presence_band":     "fraction of total power [0-1]",
-        "high_shelf":        "fraction of total power [0-1]",
-        "stereo_width":      "0.0 = mono",
-        "tempo":             "BPM (unreliable on poetry)",
-        "zcr":               "",
+        "spectral_rolloff": "Hz",
+        "low_mid_energy": "fraction of total power [0-1]",
+        "presence_band": "fraction of total power [0-1]",
+        "high_shelf": "fraction of total power [0-1]",
+        "stereo_width": "0.0 = mono",
+        "tempo": "BPM (unreliable on poetry)",
+        "zcr": "",
     }
 
     print(f"  {'Feature':<22} {'Value':>14}   Note")
@@ -247,17 +264,28 @@ if __name__ == "__main__":
 
     print(f"\n{'='*64}")
     print("  Validation checks:")
-    ok_lufs  = feats["lufs"] < 0
-    ok_bands = all(0.0 <= feats[k] <= 1.0 for k in ("low_mid_energy", "presence_band", "high_shelf"))
-    ok_mfcc  = len(mfccs) == 13
+    ok_lufs = feats["lufs"] < 0
+    ok_bands = all(
+        0.0 <= feats[k] <= 1.0
+        for k in ("low_mid_energy", "presence_band", "high_shelf")
+    )
+    ok_mfcc = len(mfccs) == 13
     ok_width = feats["stereo_width"] > 0
 
     print(f"  LUFS is negative float        : {'OK' if ok_lufs  else 'FAIL'}")
-    print(f"  Band energies in [0, 1]       : {'OK' if ok_bands else 'FAIL -- normalization broken'}")
-    print(f"  MFCC count == 13              : {'OK' if ok_mfcc  else f'FAIL -- got {len(mfccs)}'}")
-    print(f"  Stereo width > 0              : {'OK' if ok_width else '-- mono file (width=0.0 expected)'}")
+    print(
+        f"  Band energies in [0, 1]       : {'OK' if ok_bands else 'FAIL -- normalization broken'}"
+    )
+    print(
+        f"  MFCC count == 13              : {'OK' if ok_mfcc  else f'FAIL -- got {len(mfccs)}'}"
+    )
+    print(
+        f"  Stereo width > 0              : {'OK' if ok_width else '-- mono file (width=0.0 expected)'}"
+    )
     print(f"  Tempo (raw, may drift)        : {feats['tempo']:.1f} BPM")
 
     all_ok = ok_lufs and ok_bands and ok_mfcc
-    print(f"\n  {'VALIDATED -- proceed to Phase 2' if all_ok else 'FAILED -- do not proceed'}")
+    print(
+        f"\n  {'VALIDATED -- proceed to Phase 2' if all_ok else 'FAILED -- do not proceed'}"
+    )
     print(f"{'='*64}\n")
