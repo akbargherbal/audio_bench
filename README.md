@@ -1,16 +1,15 @@
 # AUDIO-QA
 
-**Pre-assembly quality assurance for Suno AI-generated audio chunks.**
+Pre-assembly quality assurance for Suno AI-generated audio chunks.
 
-Classical Arabic Poem → Suno AI → Audacity pipeline.  
-Catches deviant chunks _before_ Audacity assembly. Produces paste-ready diagnostic reports for LLM-assisted prompt debugging.
+Classical Arabic Poem → Suno AI → Audacity pipeline. Catches deviant chunks _before_ Audacity assembly and produces paste-ready diagnostic reports for LLM-assisted prompt debugging and mix-character analysis.
 
 ---
 
 ## Installation
 
 ```bash
-pip install librosa pyloudnorm soundfile numpy
+pip install librosa pyloudnorm soundfile numpy scipy
 ```
 
 Python 3.9+ required. No GUI. CLI only.
@@ -20,19 +19,29 @@ Python 3.9+ required. No GUI. CLI only.
 ## Quick Start
 
 ```bash
-# Single chunk — report to stdout
+# Single chunk QA — report to stdout
 python main.py --reference data/audio/REF_01.mp3 --chunk data/audio/CHUNK_B.mp3
 
 # Batch folder — one report per chunk + ranked summary
 python main.py --reference data/audio/REF_01.mp3 --batch data/audio/WAV/
 
-# Production hygiene check against a commercial track
+# Prompt debug — QA report + Suno prompt implications
+python main.py --reference data/audio/REF_01.mp3 --chunk data/audio/CHUNK_B.mp3 --mode prompt-debug
+
+# Ceiling analysis — production hygiene red-flag check
 python main.py --ceiling data/audio/elisa_maktooba_leek.mp3 --chunk data/audio/CHUNK_B.mp3
+
+# Style gap analysis — neutral mix-character briefing
+python main.py --style-compare data/audio/elisa_maktooba_leek.mp3 --chunk data/audio/CHUNK_B.mp3
 ```
 
 ---
 
 ## CLI Modes
+
+`--reference`, `--ceiling`, and `--style-compare` are mutually exclusive. Use exactly one per invocation.
+
+---
 
 ### 1. Single Chunk QA
 
@@ -55,7 +64,7 @@ Compares one chunk against the reference. Outputs a Markdown (default) or JSON r
 **Verdict bands:**
 
 | Score  | Verdict                                              |
-| ------ | ---------------------------------------------------- |
+|--------|------------------------------------------------------|
 | 85–100 | PASS — within reference family                       |
 | 65–84  | REVIEW — minor deviations present                    |
 | 50–64  | CAUTION — notable deviations, consider re-generation |
@@ -84,9 +93,11 @@ The reference profile is extracted once and cached to `reference_profile.json`. 
 ```
 | Rank | Chunk       | Consistency Score | Flagged Features           |
 |:----:|:------------|------------------:|:---------------------------|
-| 1    | CHUNK_C.mp3 | 78/100            | Spectral centroid, MFCC    |
+| 1    | CHUNK_C.mp3 | 79/100            | Spectral centroid, MFCC    |
 | 2    | CHUNK_G.mp3 | 91/100            | LUFS                       |
 ```
+
+Sorted worst-first. `--mode prompt-debug` is noted but ignored in batch mode — run single-chunk mode for prompt debugging.
 
 ---
 
@@ -96,7 +107,9 @@ The reference profile is extracted once and cached to `reference_profile.json`. 
 python main.py --reference <ref.mp3|wav> --chunk <new_gen.mp3> --mode prompt-debug
 ```
 
-Same as single chunk QA, with an additional **Suno Prompt Implications** section appended. Maps each flagged feature to a likely Suno prompt cause.
+Identical to Single Chunk QA with one additional section appended: **Suno Prompt Implications**. Maps each flagged feature to a likely Suno prompt cause.
+
+**Implication map v1.1 covers 8 features** with directional entries (12 total entries). Features not in the map (`rms`, `dynamic_range`, `zcr`) render a fallback note if they are the only flags.
 
 **Example implications:**
 
@@ -104,17 +117,16 @@ Same as single chunk QA, with an additional **Suno Prompt Implications** section
 - MFCC distance high → "Check whether reference audio was attached to this generation"
 - Presence band low → "Consider adding 'vocal-forward', 'clear vocals', 'intimate'"
 
-Implication map v1.1 covers 8 features with directional entries (12 total entries). Features not in the map (`rms`, `dynamic_range`, `zcr`) render a fallback note if they are the only flags.
-
-Single-chunk only — `--mode prompt-debug` is noted but ignored in batch mode.
+Single-chunk only. `--mode prompt-debug` is ignored in batch mode.
 
 ---
 
-### 4. Ceiling Analysis Mode (Phase 6)
+### 4. Ceiling Analysis Mode
 
 ```bash
 python main.py --ceiling <commercial_track.mp3> --chunk <chunk.mp3>
 python main.py --ceiling <commercial_track.mp3> --chunk <chunk.mp3> --output reports/ceiling.md
+python main.py --ceiling <commercial_track.mp3> --chunk <chunk.mp3> --json
 ```
 
 **Purpose:** Production hygiene red-flag check. Detects gross production failures only — not genre differences.
@@ -131,54 +143,109 @@ Single-chunk only — `--ceiling` with `--batch` errors explicitly.
 
 ---
 
+### 5. Style Gap Analysis Mode
+
+```bash
+python main.py --style-compare <commercial_track.mp3> --chunk <chunk.mp3>
+python main.py --style-compare <commercial_track.mp3> --chunk <chunk.mp3> --output reports/style_gap.md
+python main.py --style-compare <commercial_track.mp3> --chunk <chunk.mp3> --json
+```
+
+**Purpose:** Neutral mix-character briefing. Compares 10 mix-relevant features between a Suno chunk and a commercial reference track. No score, no thresholds, no pass/fail. Output is a paste-ready Markdown block for LLM-assisted mix-character reasoning.
+
+**What it compares (10 of 12 features):** LUFS, RMS energy, Dynamic range, Spectral centroid, Spectral rolloff, Low-mid energy, Presence band, High shelf, Stereo width, MFCC distance.
+
+**Explicitly excluded:**
+
+- **Tempo** — unreliable on Arabic poetry (librosa beat estimation artefact)
+- **Zero crossing rate** — noise/distortion indicator, not a mix-character metric
+
+**Report framing:** Every style gap report opens with _"STYLE GAP BRIEFING — NOT A QA VERDICT."_ The report uses direction arrows (↑/↓/≈) instead of flag symbols (⚠/✓) — there are no thresholds to flag against. The commercial track values are mix-character context only; genre differences are expected and intentional.
+
+**Report sections (all always present):**
+
+1. Header — framing note, file names, feature count
+2. Feature comparison table — Commercial / Suno / Delta / Direction for 10 features
+3. Perceptual notes — plain-English directional description per feature
+4. Style Gap Briefing Block — paste-ready block with genre context and a suggested LLM prompt
+
+**Difference from Ceiling Analysis:** Ceiling mode is a binary red-flag check with wide thresholds and a hygiene framing. Style Gap is threshold-free, directional, and designed for LLM-assisted mix-character reasoning — not defect detection.
+
+Single-chunk only — `--style-compare` with `--batch` errors explicitly.
+
+---
+
 ## File Map
 
 ```
-project_root/
-├── extractor.py          # Phase 1 — feature extraction (12 features)
-├── profiler.py           # Phase 2 — reference profile + chunk delta
-├── scorer.py             # Phase 3 — consistency score + flagging
-├── reporter.py           # Phase 3/5/6 — Markdown report generation
-├── config.py             # Phase 3/6 — thresholds, weights, ceiling thresholds
-├── main.py               # Phase 3+ — CLI entry point, all mode dispatch
-├── reference_profile.json  # auto-created on first run, reused as cache
-└── reports/              # auto-created in batch mode
-    ├── <chunk>_report.md
-    ├── summary.md
-    └── ceiling_<chunk>.md
+TRACK_QA/
+├── README.md
+└── src/
+    ├── config.py               # Phases 3/6 — QA thresholds, weights, ceiling thresholds
+    ├── extractor.py            # Phase 1 — feature extraction (12 features)
+    ├── main.py                 # Phase 3+ — CLI entry point, all mode dispatch
+    ├── profiler.py             # Phase 2 — reference profile + chunk delta
+    ├── reference_profile.json  # auto-created on first --reference run, reused as cache
+    ├── reporter.py             # Phases 3/5/6/7 — Markdown report generation (all modes)
+    ├── scorer.py               # Phase 3 — consistency score + flagging
+    └── reports/                # auto-created in batch mode
+        ├── <chunk>_report.md
+        ├── summary.md
+        └── ceiling_<chunk>.md
 ```
 
-No file outside this map should be created without explicit decision.
+All scripts must be run from `src/`. No file outside this map should be created without explicit decision. Style Gap Analysis produces no new files beyond those listed.
 
 ---
 
 ## Features Extracted
 
-| Feature                      | Unit       | Library      | Notes                                      |
-| ---------------------------- | ---------- | ------------ | ------------------------------------------ |
-| LUFS (integrated loudness)   | LUFS       | `pyloudnorm` | Perceived loudness — must be negative      |
-| RMS energy                   | —          | `librosa`    | Overall energy level                       |
-| Dynamic range (crest factor) | dB         | `librosa`    | 20·log10(peak/RMS)                         |
-| Spectral centroid            | Hz         | `librosa`    | Brightness — tonal weight                  |
-| Spectral rolloff             | Hz         | `librosa`    | High-frequency content rolloff             |
-| Low-mid energy (200–500 Hz)  | frac [0,1] | `librosa`    | Muddiness indicator                        |
-| Presence band (1k–4kHz)      | frac [0,1] | `librosa`    | Vocal clarity / cut-through                |
-| High shelf (8kHz+)           | frac [0,1] | `librosa`    | Air / harshness                            |
-| Stereo width                 | —          | `librosa`    | Side/Mid RMS ratio; 0.0 if mono            |
-| Tempo                        | BPM        | `librosa`    | Unreliable on poetry — disabled in scoring |
-| MFCCs (13 coefficients)      | —          | `librosa`    | Timbre fingerprint                         |
-| Zero crossing rate           | —          | `librosa`    | Noisiness / distortion indicator           |
+All 12 features are extracted from every file by `extractor.py`. Modes differ in which features they use.
+
+| Feature                     | Unit        | Library      | Notes                                                     |
+|-----------------------------|-------------|--------------|-----------------------------------------------------------|
+| LUFS (integrated loudness)  | LUFS        | `pyloudnorm` | Perceived loudness — must be negative                     |
+| RMS energy                  | —           | `librosa`    | Overall energy level                                      |
+| Dynamic range (crest factor)| dB          | `librosa`    | 20·log10(peak/RMS)                                        |
+| Spectral centroid           | Hz          | `librosa`    | Brightness — tonal weight                                 |
+| Spectral rolloff            | Hz          | `librosa`    | High-frequency content rolloff                            |
+| Low-mid energy (200–500 Hz) | frac [0,1]  | `librosa`    | Muddiness indicator — fraction of total spectral power    |
+| Presence band (1k–4kHz)     | frac [0,1]  | `librosa`    | Vocal clarity / cut-through                               |
+| High shelf (8kHz+)          | frac [0,1]  | `librosa`    | Air / harshness                                           |
+| Stereo width                | —           | `librosa`    | Side/Mid RMS ratio; 0.0 if mono                           |
+| Tempo                       | BPM         | `librosa`    | Unreliable on poetry — disabled in QA scoring             |
+| MFCCs (13 coefficients)     | —           | `librosa`    | Timbre fingerprint; cosine distance on C02–C13 used in scoring |
+| Zero crossing rate          | —           | `librosa`    | Noisiness / distortion indicator                          |
 
 Band energies (low-mid, presence, high shelf) are expressed as a **fraction of total spectral power** — length-independent and directly comparable across chunks of different duration.
+
+**Feature usage by mode:**
+
+| Feature          | QA / Batch | Prompt Debug | Ceiling | Style Gap |
+|------------------|:----------:|:------------:|:-------:|:---------:|
+| LUFS             | ✓          | ✓            | ✓       | ✓         |
+| RMS energy       | ✓          | ✓            | ✓       | ✓         |
+| Dynamic range    | ✓          | ✓            | ✓       | ✓         |
+| Spectral centroid| ✓          | ✓            | ✓       | ✓         |
+| Spectral rolloff | ✓          | ✓            | ✓       | ✓         |
+| Low-mid energy   | ✓          | ✓            | ✓       | ✓         |
+| Presence band    | ✓          | ✓            | ✓       | ✓         |
+| High shelf       | ✓          | ✓            | —       | ✓         |
+| Stereo width     | ✓          | ✓            | —       | ✓         |
+| MFCC distance    | ✓          | ✓            | ✓       | ✓         |
+| Tempo            | scored=0   | scored=0     | —       | —         |
+| Zero crossing rate | ✓        | ✓            | ✓       | —         |
 
 ---
 
 ## Scoring Formula
 
+Used in QA, Batch, and Prompt Debug modes only. Ceiling and Style Gap modes do not produce a Consistency Score.
+
 ```
 # Per feature:
-raw_penalty     = max(0.0, abs(delta) / threshold − 1.0)
-capped_penalty  = min(raw_penalty, 2.0)
+raw_penalty      = max(0.0, abs(delta) / threshold − 1.0)
+capped_penalty   = min(raw_penalty, 2.0)
 weighted_penalty = capped_penalty × weight
 
 # Final score:
@@ -186,51 +253,90 @@ score = 100 − (sum(weighted_penalties) / sum(all_weights)) × 100
 score = max(0, round(score, 1))
 ```
 
-Binary flags (`abs(delta) > threshold`) are used only for report labels — the score itself is continuous and scales with severity.
+Binary flags (`abs(delta) > threshold`) are used only for report labels — the score itself is continuous and scales with severity. `tempo` weight is 0.0 (disabled) so it never contributes to the score regardless of its delta.
 
 ---
 
-## Calibration Notes
+## Calibration
 
-**Current thresholds and weights are v1 heuristics** calibrated after real-chunk runs in Sessions 3–5.
+### QA Thresholds and Weights
 
-Key calibration decisions locked:
+Current values in `config.py` — v1 heuristics calibrated through Sessions 3–9.
 
-| Parameter                 | Value   | Note                                                                    |
-| ------------------------- | ------- | ----------------------------------------------------------------------- |
-| `lufs` threshold          | ±3.0 LU | Widened from ±2.0 after Session 3 real-chunk run                        |
-| `mfcc_distance` threshold | ±7.0    | Widened from ±5.0 after Session 3 real-chunk run                        |
-| `tempo` weight            | 0.0     | Disabled — librosa beat estimation is unreliable on Arabic poetry       |
-| `tempo` threshold         | 999.0   | Effectively infinite — tempo never flags                                |
-| `high_shelf` threshold    | ±0.05   | Watch point: baseline is only ~0.018 frac; may need tightening to ±0.02 |
+| Feature           | Threshold | Weight | Notes                                                      |
+|-------------------|-----------|--------|------------------------------------------------------------|
+| `lufs`            | ±3.0 LU   | 1.5    | Widened from ±2.0 after Session 3 real-chunk run           |
+| `rms`             | ±0.05     | 0.8    |                                                            |
+| `dynamic_range`   | ±3.0 dB   | 1.0    |                                                            |
+| `spectral_centroid` | ±500 Hz | 1.0    |                                                            |
+| `spectral_rolloff`| ±1000 Hz  | 0.8    |                                                            |
+| `low_mid_energy`  | ±0.10 frac| 1.0    |                                                            |
+| `presence_band`   | ±0.10 frac| 1.2    | Vocal clarity — higher weight                              |
+| `high_shelf`      | ±0.05 frac| 0.7    | ⚠ Baseline is ~0.018; may need tightening to ±0.02         |
+| `stereo_width`    | ±0.10     | 1.0    | Recalibrated Session 9 (S/M RMS ratio scale; old ±0.15 was abs(L-R)) |
+| `tempo`           | 999.0     | 0.0    | Disabled — unreliable on Arabic poetry                     |
+| `mfcc_distance`   | ±7.0      | 1.5    | Widened from ±5.0 after Session 3 real-chunk run           |
+| `zcr`             | ±0.05     | 0.5    |                                                            |
 
-To recalibrate: edit `config.py` directly — `THRESHOLDS` and `WEIGHTS` are plain Python dicts. No other mechanism exists by design.
+To recalibrate: edit `THRESHOLDS` and `WEIGHTS` in `config.py` directly. No other mechanism exists by design.
 
-**Ceiling thresholds** (`CEILING_THRESHOLDS` in `config.py`) are separate from QA thresholds and are not covered by the integrity check. They are intentionally wide.
+### Ceiling Thresholds
+
+Defined separately as `CEILING_THRESHOLDS` in `config.py`. Intentionally wide — roughly 2–3× QA thresholds. A single ceiling flag is a genuine production hygiene failure. These are not covered by the `THRESHOLDS`/`WEIGHTS` integrity check.
 
 ### Presence Band Interpretation Rule
 
-When a `presence_band` flag fires, cross-reference it with `low_mid_energy` in the same chunk's report before treating it as a vocal recession:
+When a `presence_band` flag fires, cross-reference it with `low_mid_energy` before treating it as a vocal recession:
 
-- If `presence_band` drops **and** `low_mid_energy` spikes: the drop is likely caused by low-end energy inflating the total spectral power denominator, not by a genuinely recessed vocal. Check for bass buildup or proximity-effect rumble in this chunk.
-- If `presence_band` drops **alone** (low-mid is within threshold): the vocal may genuinely have less 1k–4kHz cut-through. Consider re-generation or prompt adjustment.
+- `presence_band` drops **and** `low_mid_energy` spikes → the drop is likely caused by low-end energy inflating the spectral power denominator, not a genuinely recessed vocal. Check for bass buildup or proximity-effect rumble.
+- `presence_band` drops **alone** → the vocal may genuinely have less 1k–4kHz cut-through. Consider re-generation or prompt adjustment.
 
 Source: Expert B (Mastering), Session 8 consultation.
 
+### Current Batch Scores (post-Session 9, unchanged)
+
+| Rank | Chunk                  | Score    | Flagged                             |
+|:----:|:-----------------------|---------:|:------------------------------------|
+| 1    | FULL_qais_part_C       | 79.2/100 | Spectral centroid, Spectral rolloff |
+| 2    | FULL_qais_part_A_02    | 98.2/100 | Spectral centroid, Spectral rolloff |
+| 3    | FULL_qais_part_F (Edit)| 99.7/100 | Spectral rolloff                    |
+| 4–6  | Parts B, E, G          | 100.0/100| —                                   |
+
+Part C is a persistent outlier (+1061.7 Hz centroid, +2453.0 Hz rolloff). Decision pending.
+
+---
+
 ## Known Limitations
 
-- **Tempo disabled.** `librosa.beat.tempo()` produces implausible estimates on non-rhythmic Arabic poetry. Weight is 0.0 and threshold is 999.0. Tempo is extracted and displayed but does not affect the Consistency Score.
-- **Prompt implication map v1.1 covers 8 features.** `rms`, `dynamic_range`, and `zcr` have no map entry — they do not translate cleanly to Suno prompt language. If these are the only flagged features, a fallback note renders in the Prompt Implications section.
-- **Mono chunks.** If a chunk is mono and the reference is stereo, `stereo_width` delta is `0.0 − reference_width` and will be negative. This is logged with an INFO note. It does not crash.
-- **Stereo width threshold requires recalibration.** The `stereo_width` metric was corrected in Session 8 from an absolute amplitude formula (`mean(abs(L−R))`) to an amplitude-normalised Side/Mid RMS ratio. The threshold (`±0.15` in `config.py`) was calibrated against the old formula and is no longer valid. Do not treat stereo width flags as authoritative until `THRESHOLDS["stereo_width"]` has been recalibrated against a batch run using the new metric.
-- **MP3 acceptable.** Suno compression artifacts are uniform across chunks from the same project and will not skew comparative deltas.
-- **No stem separation.** Vocal isolation (Demucs etc.) is out of scope. All features reflect the full mix, including accompaniment.
-- **Ceiling analysis is single-chunk only.** `--ceiling` with `--batch` errors explicitly.
-- **Commercial track genre mismatch.** The ceiling analysis is designed specifically for this. Genre-specific features are excluded. The report framing is mandatory — do not remove the disclaimer.
+**Tempo disabled.** `librosa.beat.tempo()` produces implausible estimates on non-rhythmic Arabic poetry. Weight is 0.0 and threshold is 999.0. Tempo is extracted and displayed but does not affect the Consistency Score and is excluded from Ceiling and Style Gap modes entirely.
+
+**Prompt implication map v1.1 covers 8 features.** `rms`, `dynamic_range`, and `zcr` have no map entry — they do not translate cleanly to Suno prompt language. A fallback note renders if these are the only flagged features.
+
+**Mono chunks.** If a chunk is mono and the reference is stereo, `stereo_width` delta is `0.0 − reference_width` and will be negative. This is logged with an INFO note. It does not crash.
+
+**Stereo width recalibrated Session 9.** The metric was corrected from absolute amplitude (`mean(abs(L−R))`) to amplitude-normalised Side/Mid RMS ratio. The threshold was updated to ±0.10 (old ±0.15 was calibrated against the obsolete formula and is no longer valid). Monitor: tighten to ±0.07 if false negatives emerge.
+
+**MP3 acceptable.** Suno compression artefacts are uniform across chunks from the same project and will not skew comparative deltas.
+
+**No stem separation.** Vocal isolation (Demucs etc.) is out of scope. All features reflect the full mix, including accompaniment.
+
+**Ceiling and Style Gap are single-chunk only.** Both `--ceiling` and `--style-compare` with `--batch` error explicitly.
+
+**Style Gap direction arrows, not thresholds.** The ↑/↓/≈ direction in style gap reports reflects sign and magnitude of the delta only. Magnitude is not benchmarked against any norm — the LLM receiving the briefing block reasons about significance.
+
+**Commercial track genre mismatch.** Both ceiling and style gap modes are designed for this. Genre-specific features are excluded from ceiling analysis. Style gap makes no exclusions for genre — it is explicitly framed as mix-character context, not a style target.
+
+**`reports/` is gitignored.** Keep manual copies of significant batch runs if needed.
+
+**`scorer.py` stale docstring.** "mean absolute MFCC delta" should read "cosine distance". Cosmetic only; no functional impact.
+
+---
 
 ## What the Script Does NOT Do
 
 - Does not fix or alter any audio
 - Does not make final re-generation decisions — it flags and explains
 - Does not use commercial tracks as style or genre targets
+- Does not score Suno tracks against commercial production targets
 - Does not replace the user's ear — it directs it
+- Does not call any LLM API — all LLM interaction is manual (paste the summary block)

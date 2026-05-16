@@ -625,6 +625,101 @@ _CEILING_FEATURE_ORDER: list[str] = [
     "mfcc_distance",
 ]
 
+# ---------------------------------------------------------------------------
+# Style Gap Analysis — feature order and exclusion list
+# Source: Phased_Plan_Style_Gap_Analysis.md, Phase 1
+#
+# Excluded features and rationale:
+#   tempo — unreliable on Arabic poetry (librosa beat estimation artefact)
+#   zcr   — noise/distortion indicator; not a mix-character metric
+# ---------------------------------------------------------------------------
+
+_STYLE_COMPARE_FEATURE_ORDER: list[str] = [
+    "lufs",
+    "rms",
+    "dynamic_range",
+    "spectral_centroid",
+    "spectral_rolloff",
+    "low_mid_energy",
+    "presence_band",
+    "high_shelf",
+    "stereo_width",
+    "mfcc_distance",
+]
+
+_STYLE_COMPARE_EXCLUDED_DISPLAY: list[str] = [
+    "Tempo (unreliable on poetry — librosa artefact)",
+    "Zero crossing rate (noise indicator, not mix character)",
+]
+
+
+def _get_style_compare_note(feature: str, delta: float) -> str:
+    """
+    Plain-English perceptual note for a style gap feature delta.
+
+    Tone: neutral and directional. No pass/fail, no hygiene framing.
+    The LLM receiving this briefing will reason about significance.
+    """
+    if feature == "lufs":
+        return (
+            "Suno track is quieter — sits lower in perceived loudness"
+            if delta < 0
+            else "Suno track is louder — sits higher in perceived loudness"
+        )
+    if feature == "rms":
+        return (
+            "Suno track has less overall energy"
+            if delta < 0
+            else "Suno track has more overall energy"
+        )
+    if feature == "dynamic_range":
+        return (
+            "Suno track is more compressed — less dynamic headroom"
+            if delta < 0
+            else "Suno track is less compressed — more dynamic breathing room"
+        )
+    if feature == "spectral_centroid":
+        return (
+            "Suno track is darker — tonal weight sits lower in the spectrum"
+            if delta < 0
+            else "Suno track is brighter — tonal weight sits higher in the spectrum"
+        )
+    if feature == "spectral_rolloff":
+        return (
+            "Suno track rolls off earlier — less high-frequency content"
+            if delta < 0
+            else "Suno track rolls off later — more high-frequency content"
+        )
+    if feature == "low_mid_energy":
+        return (
+            "Suno track has more low-mid energy (200–500 Hz) — warmer or muddier body"
+            if delta > 0
+            else "Suno track has less low-mid energy — thinner body, less warmth"
+        )
+    if feature == "presence_band":
+        return (
+            "Suno track has less presence (1k–4kHz) — vocal sits further back in mix"
+            if delta < 0
+            else "Suno track has more presence (1k–4kHz) — vocal sits more forward in mix"
+        )
+    if feature == "high_shelf":
+        return (
+            "Suno track has more high-shelf energy (8kHz+) — more air or sheen"
+            if delta > 0
+            else "Suno track has less high-shelf energy (8kHz+) — less air, darker top end"
+        )
+    if feature == "stereo_width":
+        return (
+            "Suno track is narrower — more centred, less spatial spread"
+            if delta < 0
+            else "Suno track is wider — more spatial spread"
+        )
+    if feature == "mfcc_distance":
+        return "Overall timbral character distance from commercial reference"
+    # Generic fallback
+    direction = "above" if delta > 0 else "below"
+    return f"Suno track is {direction} commercial reference on this metric"
+
 
 def _get_ceiling_flag_label(feature: str, delta: float) -> str:
     """
@@ -922,3 +1017,195 @@ def generate_ceiling_report(
     summary_section = "\n".join(summary_lines)
 
     return "\n".join([header, feature_table, red_flag_section, summary_section])
+
+
+def generate_style_compare_report(
+    chunk_name: str,
+    style_name: str,
+    chunk_feats: dict,
+    style_feats: dict,
+    deltas: dict,
+) -> str:
+    """
+    Style Gap Analysis — neutral mix-character briefing report.
+
+    Compares a Suno chunk against a commercial reference on 10 mix-relevant
+    features. Produces no score, no verdict, no pass/fail flags. Output is
+    a paste-ready Markdown briefing for LLM-assisted mix-character reasoning.
+
+    Report sections (all always present):
+        1. Header          — framing note, file names, feature count
+        2. Feature table   — Commercial / Suno / Delta / Direction for 10 features
+        3. Perceptual notes — plain-English directional description per feature
+        4. LLM briefing block — paste-ready block with genre context and suggested prompt
+
+    Args:
+        chunk_name:   Chunk filename (display).
+        style_name:   Commercial reference filename (display).
+        chunk_feats:  Raw dict from extract_features() for the Suno chunk.
+        style_feats:  Raw dict from extract_features() for the commercial track.
+        deltas:       {feature: delta} for included features.
+                      mfcc_distance must be pre-computed and present.
+
+    Returns:
+        str — complete Markdown style gap briefing.
+    """
+    n_features = len(_STYLE_COMPARE_FEATURE_ORDER)
+
+    # ------------------------------------------------------------------
+    # Section 1 — Header
+    # ------------------------------------------------------------------
+    header = "\n".join(
+        [
+            f"# Audio QA: Style Gap Briefing — {chunk_name}",
+            "",
+            "> **STYLE GAP BRIEFING — NOT A QA VERDICT**",
+            f"> This report compares the mix character of **{chunk_name}** (Suno)",
+            f"> against **{style_name}** (commercial reference).",
+            "> No score. No pass/fail. No thresholds.",
+            "> These are directional observations for mix-character awareness.",
+            "> Paste the briefing block at the end into an LLM for interpretation.",
+            "",
+            "| | |",
+            "|---|---|",
+            f"| **Suno chunk** | {chunk_name} |",
+            f"| **Commercial reference** | {style_name} |",
+            f"| **Features compared** | {n_features} of 12 |",
+            f"| **Features excluded** | tempo, zero crossing rate |",
+            "",
+        ]
+    )
+
+    # ------------------------------------------------------------------
+    # Section 2 — Feature comparison table
+    # ------------------------------------------------------------------
+    rows: list[tuple] = []
+    for key in _STYLE_COMPARE_FEATURE_ORDER:
+        display = _FEATURE_DISPLAY[key]
+        unit = _FEATURE_UNITS[key]
+        delta = deltas[key]
+        fmt = _FEATURE_FMT.get(key, ".4f")
+
+        if key == "mfcc_distance":
+            ref_str = format(0.0, fmt)
+            chunk_str = format(delta, fmt)
+        else:
+            ref_str = format(style_feats[key], fmt)
+            chunk_str = format(chunk_feats[key], fmt)
+
+        sign = "+" if delta >= 0 else ""
+        delta_str = f"{sign}{format(delta, fmt)}"
+
+        # Direction arrow — neutral, no threshold required
+        if abs(delta) < 1e-6:
+            direction = "≈"
+        elif delta > 0:
+            direction = "↑ Suno higher"
+        else:
+            direction = "↓ Suno lower"
+
+        rows.append((display, unit, ref_str, chunk_str, delta_str, direction))
+
+    hdr = ("Feature", "Unit", "Commercial", "Suno", "Delta", "Direction")
+    widths = [max(len(hdr[i]), max(len(r[i]) for r in rows)) for i in range(len(hdr))]
+
+    def _row(*cells):
+        return (
+            f"| {cells[0]:<{widths[0]}} "
+            f"| {cells[1]:<{widths[1]}} "
+            f"| {cells[2]:>{widths[2]}} "
+            f"| {cells[3]:>{widths[3]}} "
+            f"| {cells[4]:>{widths[4]}} "
+            f"| {cells[5]:<{widths[5]}} |"
+        )
+
+    sep = (
+        f"| {'-'*widths[0]} "
+        f"| {'-'*widths[1]} "
+        f"| {'-'*widths[2]:>{widths[2]}} "
+        f"| {'-'*widths[3]:>{widths[3]}} "
+        f"| {'-'*widths[4]:>{widths[4]}} "
+        f"| {'-'*widths[5]} |"
+    )
+
+    excluded_note = (
+        f"*Not compared: {'; '.join(_STYLE_COMPARE_EXCLUDED_DISPLAY)}.*"
+    )
+
+    table_lines = ["## Feature Comparison", ""]
+    table_lines += [_row(*hdr), sep]
+    for r in rows:
+        table_lines.append(_row(*r))
+    table_lines += ["", excluded_note, ""]
+    feature_table = "\n".join(table_lines)
+
+    # ------------------------------------------------------------------
+    # Section 3 — Perceptual notes
+    # ------------------------------------------------------------------
+    note_lines = ["## Perceptual Notes", ""]
+    for key in _STYLE_COMPARE_FEATURE_ORDER:
+        delta = deltas[key]
+        display = _FEATURE_DISPLAY[key]
+        unit = _FEATURE_UNITS.get(key, "")
+        fmt = _FEATURE_FMT.get(key, ".4f")
+        sign = "+" if delta >= 0 else ""
+        d_str = f"{sign}{format(delta, fmt)}"
+        d_with_unit = f"{d_str} {unit}".strip()
+        note = _get_style_compare_note(key, delta)
+        note_lines.append(f"- **{display}** `{d_with_unit}` — {note}")
+    note_lines.append("")
+    perceptual_notes = "\n".join(note_lines)
+
+    # ------------------------------------------------------------------
+    # Section 4 — LLM paste-ready briefing block
+    # ------------------------------------------------------------------
+    inner: list[str] = [
+        f"STYLE GAP BRIEFING — {chunk_name} vs {style_name}",
+        "",
+        "Context:",
+        f"  Suno track : {chunk_name}",
+        f"              Classical Arabic Fusha vocal, deep Basso-Baritone,",
+        f"              minimalist rock accompaniment. Generated with Suno AI.",
+        f"  Commercial : {style_name}",
+        f"              Used as a mix-character reference only.",
+        f"              Genre differences are expected and intentional.",
+        "",
+        "Feature deltas (positive = Suno track higher than commercial):",
+    ]
+
+    for key in _STYLE_COMPARE_FEATURE_ORDER:
+        delta = deltas[key]
+        display = _FEATURE_DISPLAY[key]
+        unit = _FEATURE_UNITS.get(key, "")
+        fmt = _FEATURE_FMT.get(key, ".4f")
+        sign = "+" if delta >= 0 else ""
+        d_str = f"{sign}{format(delta, fmt)}"
+        d_with_unit = f"{d_str} {unit}".strip()
+        note = _get_style_compare_note(key, delta)
+        inner.append(f"  {display:<30} {d_with_unit:<14} ({note})")
+
+    inner += [
+        "",
+        "Features not compared: tempo (unreliable on poetry), zero crossing rate",
+        "",
+        "Question for LLM:",
+        "  Based on these mix-character deltas, what do you notice about how",
+        "  the Suno track differs from the commercial reference in terms of",
+        "  general feel, mix balance, and production texture?",
+        "  Focus on mix character only — not vocal performance or genre differences.",
+        "",
+        "Subjective note from user: [paste what you hear here]",
+    ]
+
+    summary_lines = [
+        "## Style Gap Briefing Block",
+        "",
+        "> *Paste the block below directly into an LLM prompt.*",
+        "",
+        "```",
+    ]
+    summary_lines.extend(inner)
+    summary_lines += ["```", ""]
+    briefing_block = "\n".join(summary_lines)
+
+    return "\n".join([header, feature_table, perceptual_notes, briefing_block])

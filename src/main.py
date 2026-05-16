@@ -43,6 +43,7 @@ from reporter import (
     generate_report,
     generate_prompt_debug_report,
     generate_ceiling_report,
+    generate_style_compare_report,
 )
 from config import THRESHOLDS, WEIGHTS, CEILING_THRESHOLDS
 
@@ -262,6 +263,103 @@ def run_ceiling(
         deltas=deltas,
         red_flags=red_flags,
         ceiling_thresholds=CEILING_THRESHOLDS,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Style Gap Analysis pipeline — Phase 7 (Style Gap)
+# ---------------------------------------------------------------------------
+
+
+def run_style_compare(
+    style_path: str,
+    chunk_path: str,
+    output_json: bool = False,
+) -> str:
+    """
+    Style Gap Analysis pipeline.
+
+    Extracts features from both files, computes deltas for the 10 included
+    mix-character features, and delegates report generation to
+    reporter.generate_style_compare_report().
+
+    No scoring. No thresholds. No pass/fail.
+
+    Features excluded from comparison:
+        tempo — unreliable on Arabic poetry
+        zcr   — noise/distortion indicator, not mix character
+
+    Args:
+        style_path:  Path to the commercial reference audio file.
+        chunk_path:  Path to the Suno chunk audio file to compare.
+        output_json: If True, return a JSON string instead of Markdown.
+
+    Returns:
+        str — Markdown style gap report or JSON string.
+    """
+    import numpy as np
+    from scipy.spatial.distance import cosine
+    from extractor import extract_features
+
+    _STYLE_COMPARE_INCLUDED = {
+        "lufs", "rms", "dynamic_range", "spectral_centroid", "spectral_rolloff",
+        "low_mid_energy", "presence_band", "high_shelf", "stereo_width",
+    }  # mfcc_distance handled separately; tempo and zcr excluded
+
+    for path, label in [(style_path, "Style reference"), (chunk_path, "Chunk")]:
+        if not os.path.isfile(path):
+            print(f"ERROR: {label} file not found: {path}", file=sys.stderr)
+            sys.exit(1)
+
+    style_name = os.path.basename(style_path)
+    chunk_name = os.path.basename(chunk_path)
+
+    print(
+        f"  [STYLE] Extracting features from commercial reference: {style_name}",
+        file=sys.stderr,
+    )
+    style_feats = extract_features(style_path)
+
+    print(
+        f"  [STYLE] Extracting features from chunk: {chunk_name}",
+        file=sys.stderr,
+    )
+    chunk_feats = extract_features(chunk_path)
+
+    # Compute MFCC cosine distance (C02–C13 only, matches ceiling and QA pipeline)
+    style_mfccs = np.array(style_feats["mfcc"])
+    chunk_mfccs = np.array(chunk_feats["mfcc"])
+    mfcc_distance = float(cosine(chunk_mfccs[1:], style_mfccs[1:]))
+
+    # Compute deltas for included scalar features
+    deltas: dict[str, float] = {}
+    for feature in _STYLE_COMPARE_INCLUDED:
+        deltas[feature] = round(chunk_feats[feature] - style_feats[feature], 8)
+    deltas["mfcc_distance"] = round(mfcc_distance, 6)
+
+    if output_json:
+        def _strip_mfcc(d: dict) -> dict:
+            return {k: v for k, v in d.items() if k != "mfcc"}
+
+        return json.dumps(
+            {
+                "mode": "style_compare",
+                "chunk_name": chunk_name,
+                "style_name": style_name,
+                "n_features_compared": 10,
+                "deltas": deltas,
+                "chunk_values": _strip_mfcc(chunk_feats),
+                "style_values": _strip_mfcc(style_feats),
+            },
+            indent=2,
+        )
+
+    return generate_style_compare_report(
+        chunk_name=chunk_name,
+        style_name=style_name,
+        chunk_feats=chunk_feats,
+        style_feats=style_feats,
+        deltas=deltas,
     )
 
 
@@ -561,6 +659,18 @@ Examples:
             "Use with --chunk only."
         ),
     )
+    parser.add_argument(
+        "--style-compare",
+        default=None,
+        metavar="FILE",
+        dest="style_compare",
+        help=(
+            "Commercial reference track for style gap analysis. "
+            "Produces a neutral mix-character briefing — no score, no thresholds. "
+            "Mutually exclusive with --reference and --ceiling. "
+            "Use with --chunk only."
+        ),
+    )
 
     # --chunk and --batch are mutually exclusive; exactly one is required.
     mode_group = parser.add_mutually_exclusive_group(required=True)
@@ -599,20 +709,25 @@ Examples:
 
     args = parser.parse_args()
 
-    # -- Validate --reference / --ceiling mutual exclusion -------------------
+    # -- Validate --reference / --ceiling / --style-compare mutual exclusion -
     has_reference = args.reference is not None
     has_ceiling = args.ceiling is not None
+    has_style_compare = args.style_compare is not None
 
-    if has_reference and has_ceiling:
+    active_modes = sum([has_reference, has_ceiling, has_style_compare])
+
+    if active_modes > 1:
         parser.error(
-            "--reference and --ceiling are mutually exclusive. Use one or the other."
+            "--reference, --ceiling, and --style-compare are mutually exclusive. "
+            "Use exactly one."
         )
 
-    if not has_reference and not has_ceiling:
+    if active_modes == 0:
         parser.error(
-            "One of --reference or --ceiling is required.\n"
-            "  Standard QA / batch : --reference <file>\n"
-            "  Ceiling analysis    : --ceiling <commercial_track>"
+            "One of the following is required:\n"
+            "  Standard QA / batch  : --reference <file>\n"
+            "  Ceiling analysis     : --ceiling <commercial_track>\n"
+            "  Style gap briefing   : --style-compare <commercial_track>"
         )
 
     # -- Ceiling mode (Phase 6) ----------------------------------------------
@@ -648,6 +763,46 @@ Examples:
             with open(args.output, "w", encoding="utf-8") as fh:
                 fh.write(report)
             print(f"  [MAIN] Ceiling report written to: {args.output}", file=sys.stderr)
+        else:
+            print(report)
+        return
+
+    # -- Style Gap Analysis mode ---------------------------------------------
+    if has_style_compare:
+        if args.batch:
+            print(
+                "  [MAIN] ERROR: --style-compare is not supported in batch mode. "
+                "Style gap analysis runs on a single chunk only.\n"
+                "  Use: python main.py --style-compare <track.mp3> --chunk <chunk.mp3>",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+
+        if args.mode != "qa":
+            print(
+                f"  [MAIN] Note: --mode {args.mode} is ignored in style-compare mode.",
+                file=sys.stderr,
+            )
+
+        print(f"\n{'='*64}", file=sys.stderr)
+        print(f"  AUDIO-QA — Style Gap Analysis", file=sys.stderr)
+        print(f"  Style ref : {args.style_compare}", file=sys.stderr)
+        print(f"  Chunk     : {args.chunk}", file=sys.stderr)
+        print(
+            f"  Framing   : mix-character briefing only — NOT a QA verdict",
+            file=sys.stderr,
+        )
+        print(f"{'='*64}\n", file=sys.stderr)
+
+        report = run_style_compare(args.style_compare, args.chunk, args.json)
+
+        if args.output:
+            with open(args.output, "w", encoding="utf-8") as fh:
+                fh.write(report)
+            print(
+                f"  [MAIN] Style gap report written to: {args.output}",
+                file=sys.stderr,
+            )
         else:
             print(report)
         return
