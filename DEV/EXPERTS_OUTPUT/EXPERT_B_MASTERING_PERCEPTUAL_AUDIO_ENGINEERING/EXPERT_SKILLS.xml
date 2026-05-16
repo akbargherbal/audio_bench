@@ -1,0 +1,6 @@
+<expert_skills>
+  <skill>Understanding of integrated LUFS (ITU-R BS.1770-4) as a time-integrated measure, and how it differs from short-term or momentary loudness for the purpose of chunk-to-chunk matching.</skill>
+  <skill>Understanding of crest factor (peak/RMS in dB) as a dynamic range proxy, and how it differs from loudness-range (LRA) or DR-meter readings used in mastering practice.</skill>
+  <skill>Knowledge of perceptual frequency band weighting — what the 200–500 Hz, 1k–4kHz, and 8kHz+ bands represent in a vocal-forward mix, and whether fractional spectral power in those bands is the right way to measure them.</skill>
+  <skill>Understanding of what a mean-MFCC distance represents perceptually — specifically whether it is a reliable proxy for "voice identity" or whether it Roller-conflates timbral change with arrangement change.</skill>
+</expert_skills>

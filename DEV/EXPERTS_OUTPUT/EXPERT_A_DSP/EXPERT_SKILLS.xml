@@ -1,0 +1,7 @@
+<expert_skills>
+  <skill>Understanding of librosa's frame-based feature pipeline — specifically that spectral_centroid, spectral_rolloff, and ZCR are computed per-frame then averaged across time, and what temporal information that averaging destroys.</skill>
+  <skill>Understanding of FFT-based band energy fractions using np.fft.rfft applied to the full signal (not a short-time windowed transform), and how this differs from a spectrogram-derived band estimate.</skill>
+  <skill>Understanding of pyloudnorm's integrated loudness requirements — the minimum file duration needed for a valid ITU-R BS.1770 measurement, and what happens when that floor is violated.</skill>
+  <skill>Understanding of MFCC computation: the Mel filter bank, the 13-coefficient truncation, and what collapsing to a mean vector (mfcc_matrix.mean(axis=1)) conceals about temporal structure.</skill>
+  <skill>Understanding of librosa's beat.tempo() algorithm and its documented failure modes on non-rhythmic or sparse audio content.</skill>
+</expert_skills>

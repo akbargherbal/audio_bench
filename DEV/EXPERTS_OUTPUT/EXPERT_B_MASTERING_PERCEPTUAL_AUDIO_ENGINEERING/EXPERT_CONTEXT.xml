@@ -1,0 +1,690 @@
+<expert_context>
+  <context_file>
+    <filename>config.py</filename>
+    <absolute_path>C:\Users\DELL\Jupyter_Notebooks\TRACK_QA\EXPERTS_OUTPUT\EXPERT_B_MASTERING_PERCEPTUAL_AUDIO_ENGINEERING\CONTEXT\config.py</absolute_path>
+    <description>thresholds, weights, and calibration watch points are all here; this is the primary document for this field</description>
+    <file_content>
+"""
+config.py — Phase 3: Deviation Thresholds &amp; Perceptual Weights
+Audio QA — Classical Arabic Poem → Suno AI → Audacity Pipeline
+
+Two plain Python dicts — edit these directly, no other mechanism.
+No config file parser. No CLI overrides. No YAML. No TOML.
+
+All values are v1 heuristics. A calibration pass is MANDATORY after the
+first end-to-end run against a real chunk. Do not treat scores as
+authoritative before calibration.
+
+THRESHOLDS — how far a feature delta may travel before being flagged.
+WEIGHTS    — perceptual importance multiplier in the consistency score.
+             Higher weight = this feature dominates the score more.
+
+Both dicts must have the same 12 keys. scorer.py will raise KeyError if
+a key is present in one but missing from the other.
+"""
+
+# ---------------------------------------------------------------------------
+# Deviation thresholds
+# Source: AUDIO_QA_Phased_Plan.md, Phase 3, Task 3.1
+#
+# CALIBRATION WATCH POINTS (from Session 3 Handover):
+#   high_shelf  ±0.05  — baseline is only 0.018 (fractional energy). This
+#                        threshold may be too loose for such a small baseline.
+#                        Flag if high_shelf fires unexpectedly; tighten to
+#                        ±0.02 or ±0.015 if needed after first real-chunk run.
+#   low_mid_energy ±0.10, presence_band ±0.10 — written before band energies
+#                        were normalized to [0,1]. These are heuristic;
+#                        verify against first run results.
+#   tempo ±10 BPM       — Arabic poetry meter is irregular. 112.5 BPM from
+#                        reference is almost certainly an artefact. Weight is
+#                        low (0.5) but threshold may need widening. Monitor.
+#   mfcc_distance ±5.0  — MFCC coefficients have varying scales. If real
+#                        chunks that sound correct score &gt;5.0, widen to ±8.0.
+# ---------------------------------------------------------------------------
+
+THRESHOLDS: dict[str, float] = {
+    "lufs":              3.0,     # ±3.0 LU    — loudness consistency (widened from 2.0)
+    "rms":               0.05,    # ±0.05       — overall energy level
+    "dynamic_range":     3.0,     # ±3.0 dB     — compression consistency
+    "spectral_centroid": 500.0,   # ±500 Hz     — brightness drift
+    "spectral_rolloff":  1000.0,  # ±1000 Hz    — high-frequency content
+    "low_mid_energy":    0.10,    # ±0.10 frac  — muddiness band [0,1]
+    "presence_band":     0.10,    # ±0.10 frac  — vocal clarity band [0,1]
+    "high_shelf":        0.05,    # ±0.05 frac  — air/harshness [0,1] ⚠ watch
+    "stereo_width":      0.15,    # ±0.15       — spatial consistency
+    "tempo":             999.0,   # Disabled    — pacing (unreliable on poetry)
+    "mfcc_distance":     7.0,     # ±7.0        — timbre fingerprint (widened from 5.0)
+    "zcr":               0.05,    # ±0.05       — noise/distortion indicator
+}
+
+# ---------------------------------------------------------------------------
+# Perceptual weights
+# Source: AUDIO_QA_Phased_Plan.md, Phase 3, Task 3.1
+#
+# Rationale summary:
+#   1.5  lufs, mfcc_distance — highest priority: loudness and voice identity
+#   1.2  presence_band       — vocal clarity is critical for poetry
+#   1.0  centroid, low_mid, stereo_width, dynamic_range — noticeable, equal
+#   0.8  rms, rolloff        — correlated/secondary to higher-weight features
+#   0.7  high_shelf          — relevant but secondary
+#   0.5  zcr, tempo          — lowest perceptual priority / unreliable estimate
+# ---------------------------------------------------------------------------
+
+WEIGHTS: dict[str, float] = {
+    "lufs":              1.5,
+    "mfcc_distance":     1.5,
+    "presence_band":     1.2,
+    "spectral_centroid": 1.0,
+    "low_mid_energy":    1.0,
+    "stereo_width":      1.0,
+    "dynamic_range":     1.0,
+    "rms":               0.8,
+    "spectral_rolloff":  0.8,
+    "high_shelf":        0.7,
+    "zcr":               0.5,
+    "tempo":             0.0,     # Disabled (removed from score calculation)
+}
+
+# ---------------------------------------------------------------------------
+# Integrity check — run on import to catch editing mistakes immediately
+# ---------------------------------------------------------------------------
+_missing_in_weights    = set(THRESHOLDS) - set(WEIGHTS)
+_missing_in_thresholds = set(WEIGHTS)    - set(THRESHOLDS)
+
+if _missing_in_weights:
+    raise ValueError(
+        f"config.py integrity error: keys in THRESHOLDS but missing from WEIGHTS: "
+        f"{sorted(_missing_in_weights)}"
+    )
+if _missing_in_thresholds:
+    raise ValueError(
+        f"config.py integrity error: keys in WEIGHTS but missing from THRESHOLDS: "
+        f"{sorted(_missing_in_thresholds)}"
+    )
+
+# ---------------------------------------------------------------------------
+# Phase 6 — Ceiling Analysis Thresholds (FR-9)
+# Source: AUDIO_QA_Phased_Plan.md, Phase 6
+#
+# PURPOSE: Red-flag detection of gross production hygiene failures only.
+# NOT a style match. NOT targets. NOT genre norms.
+#
+# Excluded features (genre-specific — do NOT add them here):
+#   high_shelf   — genre-specific air/harshness treatment
+#   stereo_width — genre-specific spatial feel
+#   tempo        — unreliable on poetry; not a commercial norm
+#
+# Thresholds are intentionally wide (roughly 2–3× QA thresholds).
+# Only egregious violations should fire — a single flag here is a
+# genuine production hygiene problem, not a stylistic difference.
+#
+# These thresholds are NOT covered by the THRESHOLDS/WEIGHTS integrity
+# check — ceiling analysis has no scoring formula, only binary flags.
+# ---------------------------------------------------------------------------
+
+CEILING_THRESHOLDS: dict[str, float] = {
+    "lufs":              8.0,     # ±8.0 LU    — truly buried or crushed
+    "rms":               0.15,    # ±0.15      — gross energy mismatch
+    "dynamic_range":     8.0,     # ±8.0 dB    — severely squashed or expanded
+    "spectral_centroid": 2500.0,  # ±2500 Hz   — extremely dark or harsh
+    "spectral_rolloff":  4000.0,  # ±4000 Hz   — grossly different freq. balance
+    "low_mid_energy":    0.25,    # ±0.25 frac — severe muddiness buildup
+    "presence_band":     0.25,    # ±0.25 frac — vocal severely buried or peaked
+    "zcr":               0.15,    # ±0.15      — gross noise or distortion
+    "mfcc_distance":     20.0,    # ±20.0      — completely different timbre
+}
+    </file_content>
+  </context_file>
+  <context_file>
+    <filename>scorer.py</filename>
+    <absolute_path>C:\Users\DELL\Jupyter_Notebooks\TRACK_QA\EXPERTS_OUTPUT\EXPERT_B_MASTERING_PERCEPTUAL_AUDIO_ENGINEERING\CONTEXT\scorer.py</absolute_path>
+    <description>the scoring formula implementation; must be read alongside config.py</description>
+    <file_content>
+"""
+scorer.py — Phase 3: Consistency Score &amp; Deviation Flagging
+Audio QA — Classical Arabic Poem → Suno AI → Audacity Pipeline
+
+Task 3.1 — score_chunk(analysis, thresholds, weights) -&gt; dict
+
+Implements the weighted continuous scoring formula from the plan.
+
+SCORING FORMULA (per feature):
+    raw_penalty     = max(0.0, abs(delta) / threshold - 1.0)
+                      ^ 0 if within threshold; grows linearly beyond it
+    capped_penalty  = min(raw_penalty, 2.0)
+                      ^ caps runaway outliers at 2× threshold violation
+    weighted_penalty = capped_penalty * weight
+
+FINAL SCORE:
+    score = 100 - (sum(weighted_penalties) / sum(all_weights)) * 100
+    score = max(0, round(score, 1))
+
+Binary flag (abs(delta) &gt; threshold) is retained for report labels only.
+It does NOT affect the score — the continuous formula handles severity.
+
+Does NOT modify extractor.py, profiler.py, or config.py.
+"""
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+
+def score_chunk(analysis: dict, thresholds: dict, weights: dict) -&gt; dict:
+    """
+    Score one chunk's analysis against the reference using configured
+    thresholds and perceptual weights.
+
+    Args:
+        analysis:   Dict returned by profiler.analyze_chunk()
+                    Required keys: analysis["deltas"] containing all 12
+                    scored feature keys (11 scalar + mfcc_distance).
+        thresholds: Dict of per-feature deviation thresholds (from config.py).
+        weights:    Dict of per-feature perceptual weights (from config.py).
+
+    Returns:
+        dict with keys:
+            consistency_score       float  — 0–100, higher = closer to reference
+            flagged_features        list   — keys where abs(delta) &gt; threshold
+            scored_features         dict   — per-feature scoring breakdown
+            total_weighted_penalty  float  — raw sum before normalisation
+            total_weight            float  — sum of all weights (denominator)
+
+    Note on mfcc_distance:
+        mfcc_distance is a non-negative scalar (mean absolute MFCC delta).
+        abs(mfcc_distance) == mfcc_distance, so the formula is unchanged.
+        mfcc_deltas (the 13-element list) is NOT used in scoring — only in
+        the report's MFCC detail block.
+    """
+    deltas      = analysis["deltas"]
+    total_weight = sum(weights.values())
+
+    scored_features: dict[str, dict] = {}
+    total_weighted_penalty = 0.0
+
+    for feature, threshold in thresholds.items():
+        delta  = deltas[feature]   # scalar for all 12 keys; mfcc_deltas ignored
+        weight = weights[feature]
+
+        # Continuous penalty — 0 inside threshold, linear beyond, capped at 2×
+        raw_penalty    = max(0.0, abs(delta) / threshold - 1.0)
+        capped_penalty = min(raw_penalty, 2.0)
+        weighted_penalty = capped_penalty * weight
+
+        # Binary flag — used only for report labels, not the score
+        flagged = abs(delta) &gt; threshold
+
+        scored_features[feature] = {
+            "delta":             delta,
+            "threshold":         threshold,
+            "weight":            weight,
+            "raw_penalty":       round(raw_penalty,       8),
+            "capped_penalty":    round(capped_penalty,    8),
+            "weighted_penalty":  round(weighted_penalty,  8),
+            "flagged":           flagged,
+        }
+
+        total_weighted_penalty += weighted_penalty
+
+    raw_score         = 100.0 - (total_weighted_penalty / total_weight) * 100.0
+    consistency_score = max(0.0, round(raw_score, 1))
+    flagged_features  = [f for f, v in scored_features.items() if v["flagged"]]
+
+    return {
+        "consistency_score":      consistency_score,
+        "flagged_features":       flagged_features,
+        "scored_features":        scored_features,
+        "total_weighted_penalty": round(total_weighted_penalty, 8),
+        "total_weight":           round(total_weight,           8),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Phase 3 validation block
+# Run: python scorer.py
+# Uses self-identity logic — if analysis["deltas"] are all zero, score must be 100.
+# ---------------------------------------------------------------------------
+
+if __name__ == "__main__":
+    from config import THRESHOLDS, WEIGHTS
+
+    print("\n" + "=" * 64)
+    print("  AUDIO-QA — Phase 3 Scorer Validation")
+    print("=" * 64)
+
+    # Build a synthetic zero-delta analysis (self-identity equivalent)
+    zero_deltas: dict = {k: 0.0 for k in THRESHOLDS}
+    zero_deltas["mfcc_deltas"] = [0.0] * 13   # not scored, must not crash
+
+    synthetic_analysis = {
+        "chunk_path":       "synthetic_self_identity",
+        "chunk_values":     {},
+        "reference_values": {},
+        "deltas":           zero_deltas,
+    }
+
+    score = score_chunk(synthetic_analysis, THRESHOLDS, WEIGHTS)
+    cs    = score["consistency_score"]
+
+    print(f"\n  Zero-delta (self-identity) Consistency Score: {cs}/100")
+
+    if cs == 100.0:
+        print("  PASS — zero deltas yield score 100.0  OK")
+    else:
+        print(f"  FAIL — expected 100.0, got {cs}")
+        print("  Check scoring formula in score_chunk().")
+        import sys; sys.exit(1)
+
+    # Verify max-penalty case (all deltas = 3× threshold → capped at 2×)
+    max_deltas: dict = {k: THRESHOLDS[k] * 3.0 for k in THRESHOLDS}
+    max_deltas["mfcc_deltas"] = [0.0] * 13
+
+    max_analysis = {
+        "chunk_path":       "synthetic_max_penalty",
+        "chunk_values":     {},
+        "reference_values": {},
+        "deltas":           max_deltas,
+    }
+
+    max_score = score_chunk(max_analysis, THRESHOLDS, WEIGHTS)
+    ms        = max_score["consistency_score"]
+    all_flagged = len(max_score["flagged_features"]) == len(THRESHOLDS)
+
+    print(f"\n  3× threshold (all capped at 2×) Consistency Score: {ms}/100")
+    print(f"  Expected: 0.0 (penalty = 2× for every feature)")
+    print(f"  All features flagged: {'PASS' if all_flagged else 'FAIL'}")
+
+    if ms == 0.0 and all_flagged:
+        print("  PASS — max-penalty case produces 0.0 and all flags set  OK")
+    else:
+        print(f"  NOTE — got {ms} (should be 0.0 if cap at 2× fills all weight)")
+
+    # Verify config integrity (keys must match)
+    th_keys = set(THRESHOLDS)
+    wt_keys = set(WEIGHTS)
+    if th_keys == wt_keys:
+        print(f"\n  Config key alignment: PASS ({len(th_keys)} features)")
+    else:
+        print(f"\n  FAIL — THRESHOLDS keys: {th_keys}")
+        print(f"         WEIGHTS    keys: {wt_keys}")
+
+    print("\n  Scorer validation complete.")
+    print("=" * 64 + "\n")
+
+    </file_content>
+  </context_file>
+  <context_file>
+    <filename>README.md</filename>
+    <absolute_path>C:\Users\DELL\Jupyter_Notebooks\TRACK_QA\EXPERTS_OUTPUT\EXPERT_B_MASTERING_PERCEPTUAL_AUDIO_ENGINEERING\CONTEXT\README.md</absolute_path>
+    <description>"Calibration Notes" and "Scoring Formula" sections; "Known Limitations" for tempo</description>
+    <file_content>
+# AUDIO-QA
+
+**Pre-assembly quality assurance for Suno AI-generated audio chunks.**
+
+Classical Arabic Poem → Suno AI → Audacity pipeline.  
+Catches deviant chunks _before_ Audacity assembly. Produces paste-ready diagnostic reports for LLM-assisted prompt debugging.
+
+---
+
+## Installation
+
+```bash
+pip install librosa pyloudnorm soundfile numpy
+```
+
+Python 3.9+ required. No GUI. CLI only.
+
+---
+
+## Quick Start
+
+```bash
+# Single chunk — report to stdout
+python main.py --reference data/audio/REF_01.mp3 --chunk data/audio/CHUNK_B.mp3
+
+# Batch folder — one report per chunk + ranked summary
+python main.py --reference data/audio/REF_01.mp3 --batch data/audio/WAV/
+
+# Production hygiene check against a commercial track
+python main.py --ceiling data/audio/elisa_maktooba_leek.mp3 --chunk data/audio/CHUNK_B.mp3
+```
+
+---
+
+## CLI Modes
+
+### 1. Single Chunk QA
+
+```bash
+python main.py --reference &lt;ref.mp3|wav&gt; --chunk &lt;chunk.mp3|wav&gt;
+python main.py --reference &lt;ref.mp3|wav&gt; --chunk &lt;chunk.mp3|wav&gt; --output reports/chunk_01.md
+python main.py --reference &lt;ref.mp3|wav&gt; --chunk &lt;chunk.mp3|wav&gt; --json
+```
+
+Compares one chunk against the reference. Outputs a Markdown (default) or JSON report to stdout or a file.
+
+**Report sections (all always present):**
+
+1. Header — chunk name, Consistency Score (0–100), verdict
+2. Feature comparison table — Reference / Chunk / Delta / Flag for all 12 features
+3. MFCC detail — 13-coefficient breakdown with role labels
+4. Flagged deviations — plain-English label per flagged feature
+5. Diagnostic summary — paste-ready LLM block (FR-6)
+
+**Verdict bands:**
+
+| Score  | Verdict                                              |
+| ------ | ---------------------------------------------------- |
+| 85–100 | PASS — within reference family                       |
+| 65–84  | REVIEW — minor deviations present                    |
+| 50–64  | CAUTION — notable deviations, consider re-generation |
+| 0–49   | FAIL — significant drift from reference              |
+
+**Stop condition:** If a chunk that sounds correct to your ear scores below 50, recalibrate `THRESHOLDS` in `config.py` before treating scores as authoritative.
+
+---
+
+### 2. Batch Mode
+
+```bash
+python main.py --reference &lt;ref.mp3|wav&gt; --batch &lt;folder/&gt;
+python main.py --reference &lt;ref.mp3|wav&gt; --batch &lt;folder/&gt; --json
+```
+
+Processes every `.mp3` / `.wav` file in the folder. Writes:
+
+- `reports/&lt;chunk_stem&gt;_report.md` — one report per chunk
+- `reports/summary.md` — ranked table, worst chunk first
+
+The reference profile is extracted once and cached to `reference_profile.json`. Subsequent runs against the same reference skip extraction.
+
+**Summary table format:**
+
+```
+| Rank | Chunk       | Consistency Score | Flagged Features           |
+|:----:|:------------|------------------:|:---------------------------|
+| 1    | CHUNK_C.mp3 | 78/100            | Spectral centroid, MFCC    |
+| 2    | CHUNK_G.mp3 | 91/100            | LUFS                       |
+```
+
+---
+
+### 3. Prompt Debug Mode
+
+```bash
+python main.py --reference &lt;ref.mp3|wav&gt; --chunk &lt;new_gen.mp3&gt; --mode prompt-debug
+```
+
+Same as single chunk QA, with an additional **Suno Prompt Implications** section appended. Maps each flagged feature to a likely Suno prompt cause.
+
+**Example implications:**
+
+- Spectral centroid brighter → "Check for descriptors pushing high-frequency energy (e.g. 'crisp', 'bright', 'airy')"
+- MFCC distance high → "Check whether reference audio was attached to this generation"
+- Presence band low → "Consider adding 'vocal-forward', 'clear vocals', 'intimate'"
+
+Implication map v1.1 covers 8 features with directional entries (12 total entries). Features not in the map (`rms`, `dynamic_range`, `zcr`) render a fallback note if they are the only flags.
+
+Single-chunk only — `--mode prompt-debug` is noted but ignored in batch mode.
+
+---
+
+### 4. Ceiling Analysis Mode (Phase 6)
+
+```bash
+python main.py --ceiling &lt;commercial_track.mp3&gt; --chunk &lt;chunk.mp3&gt;
+python main.py --ceiling &lt;commercial_track.mp3&gt; --chunk &lt;chunk.mp3&gt; --output reports/ceiling.md
+```
+
+**Purpose:** Production hygiene red-flag check. Detects gross production failures only — not genre differences.
+
+**What it checks (9 of 12 features):** LUFS, RMS energy, Dynamic range, Spectral centroid, Spectral rolloff, Low-mid energy, Presence band, Zero crossing rate, MFCC distance.
+
+**Explicitly excluded (genre-specific — never compared):** High shelf (8kHz+), Stereo width, Tempo.
+
+**Thresholds** are intentionally wide (roughly 2–3× QA thresholds). A flag here is a genuine production hygiene failure, not a stylistic difference.
+
+**Report framing:** Every ceiling report opens with a mandatory disclaimer — _"PRODUCTION HYGIENE CHECK — NOT A STYLE TARGET."_ Every red flag label includes a hygiene reminder. The commercial track values are never presented as targets.
+
+Single-chunk only — `--ceiling` with `--batch` errors explicitly.
+
+---
+
+## File Map
+
+```
+project_root/
+├── extractor.py          # Phase 1 — feature extraction (12 features)
+├── profiler.py           # Phase 2 — reference profile + chunk delta
+├── scorer.py             # Phase 3 — consistency score + flagging
+├── reporter.py           # Phase 3/5/6 — Markdown report generation
+├── config.py             # Phase 3/6 — thresholds, weights, ceiling thresholds
+├── main.py               # Phase 3+ — CLI entry point, all mode dispatch
+├── reference_profile.json  # auto-created on first run, reused as cache
+└── reports/              # auto-created in batch mode
+    ├── &lt;chunk&gt;_report.md
+    ├── summary.md
+    └── ceiling_&lt;chunk&gt;.md
+```
+
+No file outside this map should be created without explicit decision.
+
+---
+
+## Features Extracted
+
+| Feature                      | Unit       | Library      | Notes                                      |
+| ---------------------------- | ---------- | ------------ | ------------------------------------------ |
+| LUFS (integrated loudness)   | LUFS       | `pyloudnorm` | Perceived loudness — must be negative      |
+| RMS energy                   | —          | `librosa`    | Overall energy level                       |
+| Dynamic range (crest factor) | dB         | `librosa`    | 20·log10(peak/RMS)                         |
+| Spectral centroid            | Hz         | `librosa`    | Brightness — tonal weight                  |
+| Spectral rolloff             | Hz         | `librosa`    | High-frequency content rolloff             |
+| Low-mid energy (200–500 Hz)  | frac [0,1] | `librosa`    | Muddiness indicator                        |
+| Presence band (1k–4kHz)      | frac [0,1] | `librosa`    | Vocal clarity / cut-through                |
+| High shelf (8kHz+)           | frac [0,1] | `librosa`    | Air / harshness                            |
+| Stereo width                 | —          | `librosa`    | Mean abs(L−R); 0.0 if mono                 |
+| Tempo                        | BPM        | `librosa`    | Unreliable on poetry — disabled in scoring |
+| MFCCs (13 coefficients)      | —          | `librosa`    | Timbre fingerprint                         |
+| Zero crossing rate           | —          | `librosa`    | Noisiness / distortion indicator           |
+
+Band energies (low-mid, presence, high shelf) are expressed as a **fraction of total spectral power** — length-independent and directly comparable across chunks of different duration.
+
+---
+
+## Scoring Formula
+
+```
+# Per feature:
+raw_penalty     = max(0.0, abs(delta) / threshold − 1.0)
+capped_penalty  = min(raw_penalty, 2.0)
+weighted_penalty = capped_penalty × weight
+
+# Final score:
+score = 100 − (sum(weighted_penalties) / sum(all_weights)) × 100
+score = max(0, round(score, 1))
+```
+
+Binary flags (`abs(delta) &gt; threshold`) are used only for report labels — the score itself is continuous and scales with severity.
+
+---
+
+## Calibration Notes
+
+**Current thresholds and weights are v1 heuristics** calibrated after real-chunk runs in Sessions 3–5.
+
+Key calibration decisions locked:
+
+| Parameter                 | Value   | Note                                                                    |
+| ------------------------- | ------- | ----------------------------------------------------------------------- |
+| `lufs` threshold          | ±3.0 LU | Widened from ±2.0 after Session 3 real-chunk run                        |
+| `mfcc_distance` threshold | ±7.0    | Widened from ±5.0 after Session 3 real-chunk run                        |
+| `tempo` weight            | 0.0     | Disabled — librosa beat estimation is unreliable on Arabic poetry       |
+| `tempo` threshold         | 999.0   | Effectively infinite — tempo never flags                                |
+| `high_shelf` threshold    | ±0.05   | Watch point: baseline is only ~0.018 frac; may need tightening to ±0.02 |
+
+To recalibrate: edit `config.py` directly — `THRESHOLDS` and `WEIGHTS` are plain Python dicts. No other mechanism exists by design.
+
+**Ceiling thresholds** (`CEILING_THRESHOLDS` in `config.py`) are separate from QA thresholds and are not covered by the integrity check. They are intentionally wide.
+
+---
+
+## Known Limitations
+
+- **Tempo disabled.** `librosa.beat.tempo()` produces implausible estimates on non-rhythmic Arabic poetry. Weight is 0.0 and threshold is 999.0. Tempo is extracted and displayed but does not affect the Consistency Score.
+- **Prompt implication map v1.1 covers 8 features.** `rms`, `dynamic_range`, and `zcr` have no map entry — they do not translate cleanly to Suno prompt language. If these are the only flagged features, a fallback note renders in the Prompt Implications section.
+- **Mono chunks.** If a chunk is mono and the reference is stereo, `stereo_width` delta is `0.0 − reference_width` and will be negative. This is logged with an INFO note. It does not crash.
+- **MP3 acceptable.** Suno compression artifacts are uniform across chunks from the same project and will not skew comparative deltas.
+- **No stem separation.** Vocal isolation (Demucs etc.) is out of scope. All features reflect the full mix, including accompaniment.
+- **Ceiling analysis is single-chunk only.** `--ceiling` with `--batch` errors explicitly.
+- **Commercial track genre mismatch.** The ceiling analysis is designed specifically for this. Genre-specific features are excluded. The report framing is mandatory — do not remove the disclaimer.
+
+---
+
+## What the Script Does NOT Do
+
+- Does not fix or alter any audio
+- Does not make final re-generation decisions — it flags and explains
+- Does not use commercial tracks as style or genre targets
+- Does not replace the user's ear — it directs it
+
+    </file_content>
+  </context_file>
+  <context_file>
+    <filename>FULL_qais_part_B_Edit_report.md</filename>
+    <absolute_path>C:\Users\DELL\Jupyter_Notebooks\TRACK_QA\EXPERTS_OUTPUT\EXPERT_B_MASTERING_PERCEPTUAL_AUDIO_ENGINEERING\CONTEXT\FULL_qais_part_B_Edit_report.md</absolute_path>
+    <description>a borderline MFCC flag at 7.28 against a threshold of 7.0; useful for interrogating threshold sensitivity</description>
+    <file_content>
+# Audio QA Report — FULL_qais_part_B_Edit.wav
+
+| | |
+|---|---|
+| **Consistency Score** | **99.4/100** |
+| **Verdict** | PASS — within reference family |
+
+## Feature Comparison
+
+| Feature                     | Unit | Reference |    Chunk |     Delta | Flag |
+| --------------------------- | ---- | --------- | -------- | --------- | --- |
+| LUFS                        | LUFS |    -14.21 |   -11.74 |     +2.47 | ✓ |
+| RMS energy                  |      |  0.133887 | 0.170777 | +0.036890 | ✓ |
+| Dynamic range               | dB   |     12.70 |    14.59 |     +1.89 | ✓ |
+| Spectral centroid           | Hz   |    3578.4 |   3629.6 |     +51.2 | ✓ |
+| Spectral rolloff            | Hz   |    8433.8 |   8273.3 |    -160.5 | ✓ |
+| Low-mid energy (200–500 Hz) | frac |  0.169636 | 0.154682 | -0.014954 | ✓ |
+| Presence band (1k–4kHz)     | frac |  0.095966 | 0.143785 | +0.047820 | ✓ |
+| High shelf (8kHz+)          | frac |  0.018186 | 0.016578 | -0.001608 | ✓ |
+| Stereo width                |      |  0.085289 | 0.104212 | +0.018924 | ✓ |
+| Tempo                       | BPM  |     112.5 |     84.0 |     -28.5 | ✓ |
+| Zero crossing rate          |      |  0.059882 | 0.061867 | +0.001985 | ✓ |
+| MFCC distance               |      |    0.0000 |   7.2826 |   +7.2826 | ⚠ |
+
+## MFCC Detail (13 Coefficients)
+
+| Coeff | Reference  | Chunk      | Delta      | Role         |
+| :---: | ---------: | ---------: | ---------: | :----------- |
+| 01    |  -180.6576 |  -146.0202 |   +34.6374 | energy       |
+| 02    |   112.6220 |   107.9092 |    -4.7128 | tonal char   |
+| 03    |   -19.8035 |   -22.5417 |    -2.7382 | tonal char   |
+| 04    |    58.0204 |    51.1365 |    -6.8839 | mid timbre   |
+| 05    |    -4.6828 |     0.2586 |    +4.9414 | mid timbre   |
+| 06    |    42.3066 |    38.1029 |    -4.2037 | mid timbre   |
+| 07    |   -23.4139 |   -16.1551 |    +7.2588 | mid timbre   |
+| 08    |    15.7395 |    10.6190 |    -5.1205 | fine texture |
+| 09    |     4.1003 |     5.3659 |    +1.2656 | fine texture |
+| 10    |    -4.9099 |    -0.1640 |    +4.7460 | fine texture |
+| 11    |    -1.2732 |    -7.6426 |    -6.3694 | fine texture |
+| 12    |     4.2648 |    10.6716 |    +6.4069 | fine texture |
+| 13    |     4.9427 |    -0.4465 |    -5.3893 | fine texture |
+
+## Flagged Deviations
+
+- **MFCC distance** `+7.2826` — Timbre fingerprint mismatch — overall tonal character differs
+
+## Diagnostic Summary
+
+&gt; *Paste the block below directly into an LLM prompt.*
+
+```
+DIAGNOSTIC SUMMARY — FULL_qais_part_B_Edit.wav
+Consistency Score: 99.4/100
+Flagged issues:
+  - Timbre fingerprint mismatch — overall tonal character differs  (delta: +7.2826)
+
+Subjective note from user: [paste what you hear here]
+```
+
+    </file_content>
+  </context_file>
+  <context_file>
+    <filename>FULL_qais_part_C_report.md</filename>
+    <absolute_path>C:\Users\DELL\Jupyter_Notebooks\TRACK_QA\EXPERTS_OUTPUT\EXPERT_B_MASTERING_PERCEPTUAL_AUDIO_ENGINEERING\CONTEXT\FULL_qais_part_C_report.md</absolute_path>
+    <description>the outlier score (76.5/100); useful for interrogating whether the penalty weights produce a believable result</description>
+    <file_content>
+# Audio QA Report — FULL_qais_part_C.wav
+
+| | |
+|---|---|
+| **Consistency Score** | **76.5/100** |
+| **Verdict** | REVIEW — minor deviations present |
+
+## Feature Comparison
+
+| Feature                     | Unit | Reference |    Chunk |     Delta | Flag |
+| --------------------------- | ---- | --------- | -------- | --------- | --- |
+| LUFS                        | LUFS |    -14.21 |   -15.50 |     -1.29 | ✓ |
+| RMS energy                  |      |  0.133887 | 0.113678 | -0.020209 | ✓ |
+| Dynamic range               | dB   |     12.70 |    13.29 |     +0.59 | ✓ |
+| Spectral centroid           | Hz   |    3578.4 |   4640.1 |   +1061.7 | ⚠ |
+| Spectral rolloff            | Hz   |    8433.8 |  10886.8 |   +2453.0 | ⚠ |
+| Low-mid energy (200–500 Hz) | frac |  0.169636 | 0.157764 | -0.011872 | ✓ |
+| Presence band (1k–4kHz)     | frac |  0.095966 | 0.085645 | -0.010320 | ✓ |
+| High shelf (8kHz+)          | frac |  0.018186 | 0.027268 | +0.009082 | ✓ |
+| Stereo width                |      |  0.085289 | 0.076810 | -0.008479 | ✓ |
+| Tempo                       | BPM  |     112.5 |    165.4 |     +52.9 | ✓ |
+| Zero crossing rate          |      |  0.059882 | 0.074188 | +0.014307 | ✓ |
+| MFCC distance               |      |    0.0000 |   8.3931 |   +8.3931 | ⚠ |
+
+## MFCC Detail (13 Coefficients)
+
+| Coeff | Reference  | Chunk      | Delta      | Role         |
+| :---: | ---------: | ---------: | ---------: | :----------- |
+| 01    |  -180.6576 |  -180.1799 |    +0.4777 | energy       |
+| 02    |   112.6220 |    94.6284 |   -17.9936 | tonal char   |
+| 03    |   -19.8035 |    -2.5939 |   +17.2096 | tonal char   |
+| 04    |    58.0204 |    50.2523 |    -7.7681 | mid timbre   |
+| 05    |    -4.6828 |     0.0435 |    +4.7262 | mid timbre   |
+| 06    |    42.3066 |    39.5822 |    -2.7244 | mid timbre   |
+| 07    |   -23.4139 |   -23.9095 |    -0.4956 | mid timbre   |
+| 08    |    15.7395 |    24.6761 |    +8.9366 | fine texture |
+| 09    |     4.1003 |    -4.3445 |    -8.4448 | fine texture |
+| 10    |    -4.9099 |     9.8932 |   +14.8032 | fine texture |
+| 11    |    -1.2732 |   -10.2135 |    -8.9403 | fine texture |
+| 12    |     4.2648 |    15.6678 |   +11.4030 | fine texture |
+| 13    |     4.9427 |    -0.2449 |    -5.1876 | fine texture |
+
+## Flagged Deviations
+
+- **Spectral centroid** `+1061.7 Hz` — Mix brighter than reference — possible harshness
+- **Spectral rolloff** `+2453.0 Hz` — Spectral rolloff higher — more high-frequency content than reference
+- **MFCC distance** `+8.3931` — Timbre fingerprint mismatch — overall tonal character differs
+
+## Diagnostic Summary
+
+&gt; *Paste the block below directly into an LLM prompt.*
+
+```
+DIAGNOSTIC SUMMARY — FULL_qais_part_C.wav
+Consistency Score: 76.5/100
+Flagged issues:
+  - Mix brighter than reference — possible harshness  (delta: +1061.7 Hz)
+  - Spectral rolloff higher — more high-frequency content than reference  (delta: +2453.0 Hz)
+  - Timbre fingerprint mismatch — overall tonal character differs  (delta: +8.3931)
+
+Subjective note from user: [paste what you hear here]
+```
+
+    </file_content>
+  </context_file>
+</expert_context>

@@ -1,0 +1,606 @@
+<expert_context>
+  <context_file>
+    <filename>extractor.py</filename>
+    <absolute_path>C:\Users\DELL\Jupyter_Notebooks\TRACK_QA\EXPERTS_OUTPUT\EXPERT_A_DSP\CONTEXT\extractor.py</absolute_path>
+    <description>primary: every extraction decision lives here</description>
+    <file_content>
+"""
+extractor.py — Phase 1: Feature Extraction
+Audio QA — Classical Arabic Poem → Suno AI → Audacity Pipeline
+
+Task 1.1 — extract_features(filepath) -&gt; dict
+Task 1.2 — __main__ validation block
+
+Extracts all 12 features from a single WAV or MP3 file.
+No comparison logic, no scoring, no reporting — extraction only.
+
+REVISION NOTE (Phase 1 finding):
+  Band energies (low_mid_energy, presence_band, high_shelf) are expressed
+  as a fraction of total spectral power in [0, 1]. Raw FFT power scales with
+  signal length squared, making absolute values incomparable across chunks of
+  different duration. Fractional energy is length-independent, scale-independent,
+  and aligns with the ±0.10 / ±0.05 thresholds defined in config.py.
+"""
+
+import warnings
+import numpy as np
+import librosa
+import soundfile as sf
+import pyloudnorm as pyln
+
+warnings.filterwarnings("ignore")  # suppress librosa / numba routine noise
+
+
+# ---------------------------------------------------------------------------
+# Internal helpers
+# ---------------------------------------------------------------------------
+
+def _band_energy_fraction(y_mono: np.ndarray, sr: int, f_low: float, f_high: float) -&gt; float:
+    """
+    Fraction of total spectral power in the frequency band [f_low, f_high) Hz.
+
+    Returns a value in [0, 1]:
+        0.0 = no energy at all in this band
+        1.0 = all energy concentrated in this band (degenerate case)
+
+    Using fractional energy rather than absolute power makes the metric:
+      - Independent of signal length (FFT magnitude scales with N)
+      - Independent of overall loudness (already captured by LUFS/RMS)
+      - Directly interpretable: "X% of the mix energy lives in this band"
+      - Comparable across chunks of different duration
+
+    Returns 0.0 if no FFT bins fall in the band or total power is zero.
+    """
+    fft = np.fft.rfft(y_mono)
+    magnitudes_sq = np.abs(fft) ** 2
+
+    total_power = float(np.sum(magnitudes_sq))
+    if total_power == 0.0:
+        return 0.0
+
+    freqs = np.fft.rfftfreq(len(y_mono), d=1.0 / sr)
+    mask = (freqs &gt;= f_low) &amp; (freqs &lt; f_high)
+    if not np.any(mask):
+        return 0.0
+
+    band_power = float(np.sum(magnitudes_sq[mask]))
+    return band_power / total_power
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+
+def extract_features(filepath: str) -&gt; dict:
+    """
+    Load one audio file (WAV or MP3) and return a flat dict of all 12 features.
+
+    Keys returned:
+        lufs              float  — integrated loudness in LUFS (negative)
+        rms               float  — mean RMS energy
+        dynamic_range     float  — crest factor in dB (peak / RMS)
+        spectral_centroid float  — brightness in Hz
+        spectral_rolloff  float  — high-frequency rolloff in Hz
+        low_mid_energy    float  — fraction of total power in 200–500 Hz  [0,1]
+        presence_band     float  — fraction of total power in 1k–4kHz     [0,1]
+        high_shelf        float  — fraction of total power above 8kHz     [0,1]
+        stereo_width      float  — mean absolute L-R difference (0.0 if mono)
+        tempo             float  — estimated BPM (unreliable on poetry)
+        mfcc              list   — 13 floats, mean MFCC coefficients across time
+        zcr               float  — mean zero-crossing rate
+
+    Does NOT raise on implausible tempo — logs and continues.
+    DOES raise on pyloudnorm errors (file too short, bad sample rate).
+    """
+
+    # ------------------------------------------------------------------
+    # Load — librosa float32, shape (2, N) stereo or (N,) mono
+    # sr=None preserves the file's native sample rate
+    # ------------------------------------------------------------------
+    y, sr = librosa.load(filepath, mono=False, sr=None)
+
+    is_stereo = y.ndim == 2
+    if is_stereo:
+        y_mono = librosa.to_mono(y)
+        L, R = y[0], y[1]
+        stereo_width = float(np.mean(np.abs(L - R)))
+    else:
+        y_mono = y
+        stereo_width = 0.0
+        print(f"  [INFO] {filepath} is mono — stereo_width fixed at 0.0 (known limitation)")
+
+    # ------------------------------------------------------------------
+    # LUFS — pyloudnorm requires float64, shape (N,) or (N, 2)
+    # soundfile delivers both natively; loaded separately for LUFS only
+    # ------------------------------------------------------------------
+    sf_data, sf_rate = sf.read(filepath, always_2d=True)
+    meter = pyln.Meter(sf_rate)
+    lufs = float(meter.integrated_loudness(sf_data))
+
+    # ------------------------------------------------------------------
+    # RMS energy
+    # ------------------------------------------------------------------
+    rms = float(librosa.feature.rms(y=y_mono).mean())
+
+    # ------------------------------------------------------------------
+    # Dynamic range — crest factor in dB (peak / RMS)
+    # ------------------------------------------------------------------
+    peak = float(np.max(np.abs(y_mono)))
+    rms_raw = float(np.sqrt(np.mean(y_mono ** 2)))
+    if rms_raw &gt; 0.0:
+        dynamic_range = float(20.0 * np.log10(peak / rms_raw))
+    else:
+        dynamic_range = 0.0
+        print("  [WARN] RMS is zero — dynamic_range set to 0.0. Check input file.")
+
+    # ------------------------------------------------------------------
+    # Spectral centroid and rolloff
+    # ------------------------------------------------------------------
+    spectral_centroid = float(librosa.feature.spectral_centroid(y=y_mono, sr=sr).mean())
+    spectral_rolloff  = float(librosa.feature.spectral_rolloff(y=y_mono, sr=sr).mean())
+
+    # ------------------------------------------------------------------
+    # Band energies — fraction of total spectral power [0, 1]
+    # Nyquist = sr / 2; high_shelf upper bound capped there
+    # ------------------------------------------------------------------
+    low_mid_energy = _band_energy_fraction(y_mono, sr, 200.0,  500.0)
+    presence_band  = _band_energy_fraction(y_mono, sr, 1000.0, 4000.0)
+    high_shelf     = _band_energy_fraction(y_mono, sr, 8000.0, sr / 2.0)
+
+    # ------------------------------------------------------------------
+    # Tempo — unreliable on non-rhythmic Arabic poetry; log, never error
+    # ------------------------------------------------------------------
+    try:
+        tempo = float(librosa.beat.tempo(y=y_mono, sr=sr)[0])
+    except Exception as exc:
+        tempo = 0.0
+        print(f"  [WARN] Tempo estimation failed ({exc}) — tempo set to 0.0")
+
+    # ------------------------------------------------------------------
+    # MFCCs — 13 coefficients, mean across time frames
+    # ------------------------------------------------------------------
+    mfcc_matrix = librosa.feature.mfcc(y=y_mono, sr=sr, n_mfcc=13)
+    mfcc_list   = [float(v) for v in mfcc_matrix.mean(axis=1)]
+
+    # ------------------------------------------------------------------
+    # Zero crossing rate
+    # ------------------------------------------------------------------
+    zcr = float(librosa.feature.zero_crossing_rate(y_mono).mean())
+
+    return {
+        "lufs":              lufs,
+        "rms":               rms,
+        "dynamic_range":     dynamic_range,
+        "spectral_centroid": spectral_centroid,
+        "spectral_rolloff":  spectral_rolloff,
+        "low_mid_energy":    low_mid_energy,
+        "presence_band":     presence_band,
+        "high_shelf":        high_shelf,
+        "stereo_width":      stereo_width,
+        "tempo":             tempo,
+        "mfcc":              mfcc_list,
+        "zcr":               zcr,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Task 1.2 — Manual validation print block
+# Run: python extractor.py ./data/audio/REF_01.mp3
+# ---------------------------------------------------------------------------
+
+_MFCC_LABELS = [
+    "energy",        # 01
+    "tonal char",    # 02
+    "tonal char",    # 03
+    "mid timbre",    # 04
+    "mid timbre",    # 05
+    "mid timbre",    # 06
+    "mid timbre",    # 07
+    "fine texture",  # 08
+    "fine texture",  # 09
+    "fine texture",  # 10
+    "fine texture",  # 11
+    "fine texture",  # 12
+    "fine texture",  # 13
+]
+
+if __name__ == "__main__":
+    import sys
+
+    if len(sys.argv) &lt; 2:
+        print("Usage: python extractor.py &lt;audio_file.mp3|.wav&gt;")
+        sys.exit(1)
+
+    fp = sys.argv[1]
+    print(f"\n{'='*64}")
+    print(f"  AUDIO-QA — Feature Extraction Validation")
+    print(f"  File: {fp}")
+    print(f"{'='*64}\n")
+
+    feats = extract_features(fp)
+    mfccs = feats.pop("mfcc")
+
+    scalar_order = [
+        "lufs", "rms", "dynamic_range",
+        "spectral_centroid", "spectral_rolloff",
+        "low_mid_energy", "presence_band", "high_shelf",
+        "stereo_width", "tempo", "zcr",
+    ]
+    notes = {
+        "lufs":              "LUFS (must be negative)",
+        "rms":               "",
+        "dynamic_range":     "dB",
+        "spectral_centroid": "Hz",
+        "spectral_rolloff":  "Hz",
+        "low_mid_energy":    "fraction of total power [0-1]",
+        "presence_band":     "fraction of total power [0-1]",
+        "high_shelf":        "fraction of total power [0-1]",
+        "stereo_width":      "0.0 = mono",
+        "tempo":             "BPM (unreliable on poetry)",
+        "zcr":               "",
+    }
+
+    print(f"  {'Feature':&lt;22} {'Value':&gt;14}   Note")
+    print(f"  {'-'*22}   {'-'*14}   {'-'*30}")
+    for key in scalar_order:
+        print(f"  {key:&lt;22} {feats[key]:&gt;14.6f}   {notes[key]}")
+
+    print(f"\n  mfcc  (13 coefficients)")
+    print(f"  {'Coeff':&lt;8} {'Value':&gt;12}   Role")
+    print(f"  {'-'*8}   {'-'*12}   {'-'*14}")
+    for i, (v, label) in enumerate(zip(mfccs, _MFCC_LABELS), start=1):
+        print(f"  [{i:02d}]    {v:&gt;12.4f}   &lt;- {label}")
+
+    print(f"\n{'='*64}")
+    print("  Validation checks:")
+    ok_lufs  = feats["lufs"] &lt; 0
+    ok_bands = all(0.0 &lt;= feats[k] &lt;= 1.0 for k in ("low_mid_energy", "presence_band", "high_shelf"))
+    ok_mfcc  = len(mfccs) == 13
+    ok_width = feats["stereo_width"] &gt; 0
+
+    print(f"  LUFS is negative float        : {'OK' if ok_lufs  else 'FAIL'}")
+    print(f"  Band energies in [0, 1]       : {'OK' if ok_bands else 'FAIL -- normalization broken'}")
+    print(f"  MFCC count == 13              : {'OK' if ok_mfcc  else f'FAIL -- got {len(mfccs)}'}")
+    print(f"  Stereo width &gt; 0              : {'OK' if ok_width else '-- mono file (width=0.0 expected)'}")
+    print(f"  Tempo (raw, may drift)        : {feats['tempo']:.1f} BPM")
+
+    all_ok = ok_lufs and ok_bands and ok_mfcc
+    print(f"\n  {'VALIDATED -- proceed to Phase 2' if all_ok else 'FAILED -- do not proceed'}")
+    print(f"{'='*64}\n")
+
+    </file_content>
+  </context_file>
+  <context_file>
+    <filename>profiler.py</filename>
+    <absolute_path>C:\Users\DELL\Jupyter_Notebooks\TRACK_QA\EXPERTS_OUTPUT\EXPERT_A_DSP\CONTEXT\profiler.py</absolute_path>
+    <description>MFCC distance formula is computed here, not in extractor.py; easy to miss</description>
+    <file_content>
+"""
+profiler.py — Phase 2: Reference Profiling &amp; Chunk Delta
+Audio QA — Classical Arabic Poem → Suno AI → Audacity Pipeline
+
+Task 2.1 — build_reference_profile(filepath) -&gt; dict
+Task 2.2 — analyze_chunk(chunk_path, reference_profile) -&gt; dict
+
+Does NOT implement scoring or flagging — raw deltas only.
+Does NOT modify extractor.py — calls it, does not refactor it.
+"""
+
+import json
+import os
+import numpy as np
+
+from extractor import extract_features
+
+
+# ---------------------------------------------------------------------------
+# Task 2.1 — Reference Profile Builder
+# ---------------------------------------------------------------------------
+
+def build_reference_profile(filepath: str, save_path: str = "reference_profile.json") -&gt; dict:
+    """
+    Extract features from the reference track and return the profile dict.
+
+    Optionally serialises to `save_path` (default: reference_profile.json)
+    so subsequent batch runs can skip re-extracting the reference.
+
+    The profile dict is the direct output of extract_features() with one
+    additional key:
+        "_source": the filepath used to build the profile
+
+    Args:
+        filepath:  Path to the reference audio file (WAV or MP3)
+        save_path: Where to write the JSON cache. Pass None to skip saving.
+
+    Returns:
+        dict — feature profile of the reference track
+    """
+    print(f"  [PROFILER] Building reference profile from: {filepath}")
+    profile = extract_features(filepath)
+    profile["_source"] = filepath
+
+    if save_path is not None:
+        with open(save_path, "w", encoding="utf-8") as f:
+            json.dump(profile, f, indent=2)
+        print(f"  [PROFILER] Reference profile saved to: {save_path}")
+
+    return profile
+
+
+def load_reference_profile(json_path: str) -&gt; dict:
+    """
+    Load a previously saved reference profile from JSON.
+    Use this to skip re-extraction on subsequent batch runs.
+
+    Args:
+        json_path: Path to reference_profile.json
+
+    Returns:
+        dict — feature profile (same structure as build_reference_profile output)
+    """
+    with open(json_path, "r", encoding="utf-8") as f:
+        profile = json.load(f)
+    print(f"  [PROFILER] Reference profile loaded from: {json_path}")
+    print(f"  [PROFILER] Original source: {profile.get('_source', 'unknown')}")
+    return profile
+
+
+# ---------------------------------------------------------------------------
+# Task 2.2 — Chunk Analyser
+# ---------------------------------------------------------------------------
+
+def analyze_chunk(chunk_path: str, reference_profile: dict) -&gt; dict:
+    """
+    Extract features from a chunk and compute per-feature deltas against the
+    reference profile.
+
+    MFCC handling (two representations, both always present):
+        mfcc_distance  float  — mean(abs(chunk_mfccs - ref_mfccs))
+                                 Used in the consistency score (Phase 3)
+        mfcc_deltas    list   — 13 per-coefficient deltas (chunk - reference)
+                                 Used in the MFCC detail table in the report
+
+    Delta sign convention:
+        positive delta = chunk value is HIGHER than reference
+        negative delta = chunk value is LOWER than reference
+
+    Args:
+        chunk_path:        Path to the chunk audio file (WAV or MP3)
+        reference_profile: Dict returned by build_reference_profile()
+
+    Returns:
+        dict with keys:
+            chunk_path       str   — the input filepath
+            chunk_values     dict  — raw feature values for this chunk
+            reference_values dict  — raw feature values from the reference
+            deltas           dict  — per-feature deltas (chunk - reference)
+                                     includes mfcc_distance and mfcc_deltas
+
+    Raises:
+        ValueError if MFCC distance for a file compared against itself is
+        non-zero (numerical stability check — see stop condition in plan).
+    """
+    print(f"  [PROFILER] Analysing chunk: {chunk_path}")
+    chunk_feats = extract_features(chunk_path)
+
+    # Build clean reference values dict (drop internal _source key)
+    ref_values = {k: v for k, v in reference_profile.items() if not k.startswith("_")}
+
+    # ------------------------------------------------------------------
+    # Compute scalar deltas
+    # All scalar features: delta = chunk_value - reference_value
+    # ------------------------------------------------------------------
+    scalar_keys = [
+        "lufs", "rms", "dynamic_range",
+        "spectral_centroid", "spectral_rolloff",
+        "low_mid_energy", "presence_band", "high_shelf",
+        "stereo_width", "tempo", "zcr",
+    ]
+
+    deltas = {}
+    for key in scalar_keys:
+        chunk_val = chunk_feats[key]
+        ref_val   = ref_values[key]
+        deltas[key] = round(chunk_val - ref_val, 8)
+
+    # ------------------------------------------------------------------
+    # MFCC deltas — two representations
+    # ------------------------------------------------------------------
+    chunk_mfccs = np.array(chunk_feats["mfcc"])
+    ref_mfccs   = np.array(ref_values["mfcc"])
+
+    mfcc_deltas   = [round(float(d), 6) for d in (chunk_mfccs - ref_mfccs)]
+    mfcc_distance = round(float(np.mean(np.abs(chunk_mfccs - ref_mfccs))), 6)
+
+    deltas["mfcc_distance"] = mfcc_distance   # scalar — used in scoring
+    deltas["mfcc_deltas"]   = mfcc_deltas     # list of 13 — used in report
+
+    # ------------------------------------------------------------------
+    # Mono/stereo mismatch note
+    # ------------------------------------------------------------------
+    if chunk_feats["stereo_width"] == 0.0 and ref_values["stereo_width"] &gt; 0.0:
+        print(f"  [INFO] Chunk is mono, reference is stereo — "
+              f"stereo_width delta = {deltas['stereo_width']:.6f} (chunk is mono)")
+
+    return {
+        "chunk_path":       chunk_path,
+        "chunk_values":     chunk_feats,
+        "reference_values": ref_values,
+        "deltas":           deltas,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Phase 2 validation block
+# Run: python profiler.py ./data/audio/REF_01.mp3 ./data/audio/CHUNK_01.mp3
+#
+# Critical stop condition:
+#   If mfcc_distance for reference vs itself is non-zero -&gt; STOP.
+#   This indicates a numerical stability or normalisation bug.
+# ---------------------------------------------------------------------------
+
+if __name__ == "__main__":
+    import sys
+
+    if len(sys.argv) &lt; 3:
+        print("Usage: python profiler.py &lt;reference.mp3&gt; &lt;chunk.mp3&gt;")
+        print("  Tip: pass the reference as both arguments to run the self-identity check.")
+        sys.exit(1)
+
+    ref_path   = sys.argv[1]
+    chunk_path = sys.argv[2]
+
+    print(f"\n{'='*64}")
+    print(f"  AUDIO-QA — Phase 2 Validation")
+    print(f"{'='*64}")
+
+    # Step 1 — Build reference profile
+    print(f"\n[1/3] Building reference profile...")
+    ref_profile = build_reference_profile(ref_path)
+
+    # Step 2 — STOP CONDITION: reference vs itself must produce zero deltas
+    print(f"\n[2/3] Self-identity check (reference vs itself)...")
+    self_analysis = analyze_chunk(ref_path, ref_profile)
+
+    self_deltas   = self_analysis["deltas"]
+    mfcc_self_dist = self_deltas["mfcc_distance"]
+
+    scalar_self_failures = {
+        k: v for k, v in self_deltas.items()
+        if k not in ("mfcc_distance", "mfcc_deltas") and abs(v) &gt; 1e-9
+    }
+
+    if mfcc_self_dist &gt; 1e-9:
+        print(f"\n  STOP CONDITION MET")
+        print(f"  MFCC distance for reference vs itself = {mfcc_self_dist}")
+        print(f"  Expected: 0.0")
+        print(f"  This is a numerical stability or normalisation bug.")
+        print(f"  Do NOT proceed to Phase 3. Investigate extractor.py.")
+        sys.exit(1)
+
+    if scalar_self_failures:
+        print(f"  [WARN] Non-zero scalar deltas on self-comparison (may be float noise):")
+        for k, v in scalar_self_failures.items():
+            print(f"    {k}: {v}")
+    else:
+        print(f"  Self-identity: all scalar deltas = 0.0  OK")
+
+    print(f"  Self-identity: MFCC distance = {mfcc_self_dist:.8f}  OK")
+
+    # Step 3 — Analyse actual chunk
+    print(f"\n[3/3] Analysing chunk: {chunk_path}")
+    analysis = analyze_chunk(chunk_path, ref_profile)
+
+    d = analysis["deltas"]
+    cv = analysis["chunk_values"]
+    rv = analysis["reference_values"]
+
+    scalar_keys = [
+        "lufs", "rms", "dynamic_range",
+        "spectral_centroid", "spectral_rolloff",
+        "low_mid_energy", "presence_band", "high_shelf",
+        "stereo_width", "tempo", "zcr",
+    ]
+
+    print(f"\n  {'Feature':&lt;22} {'Reference':&gt;14} {'Chunk':&gt;14} {'Delta':&gt;14}")
+    print(f"  {'-'*22}   {'-'*14}   {'-'*14}   {'-'*14}")
+    for key in scalar_keys:
+        sign = "+" if d[key] &gt;= 0 else ""
+        print(f"  {key:&lt;22} {rv[key]:&gt;14.6f} {cv[key]:&gt;14.6f} {sign}{d[key]:&gt;13.6f}")
+
+    print(f"  {'mfcc_distance':&lt;22} {'':&gt;14} {'':&gt;14} {d['mfcc_distance']:&gt;14.6f}")
+
+    print(f"\n  MFCC per-coefficient deltas (chunk - reference):")
+    print(f"  {'Coeff':&lt;8} {'Reference':&gt;12} {'Chunk':&gt;12} {'Delta':&gt;12}")
+    print(f"  {'-'*8}   {'-'*12}   {'-'*12}   {'-'*12}")
+    for i, (ref_v, chunk_v, delta_v) in enumerate(
+        zip(rv["mfcc"], cv["mfcc"], d["mfcc_deltas"]), start=1
+    ):
+        sign = "+" if delta_v &gt;= 0 else ""
+        print(f"  [{i:02d}]    {ref_v:&gt;12.4f} {chunk_v:&gt;12.4f} {sign}{delta_v:&gt;11.4f}")
+
+    print(f"\n{'='*64}")
+    print(f"  Phase 2 checks:")
+
+    lufs_neg_delta = d["lufs"] &lt; 0
+    print(f"  Negative LUFS delta = chunk quieter than ref : "
+          f"{'yes' if lufs_neg_delta else 'no (chunk is louder)'}")
+    print(f"  MFCC distance (overall timbre drift)        : {d['mfcc_distance']:.4f}")
+    print(f"  Stereo width delta                          : {d['stereo_width']:+.6f}")
+    print(f"\n  Phase 2 PASSED -- delta table looks correct.")
+    print(f"  Proceed to Phase 3 (scorer.py + reporter.py + config.py).")
+    print(f"{'='*64}\n")
+
+    </file_content>
+  </context_file>
+  <context_file>
+    <filename>FULL_qais_part_C_report.md</filename>
+    <absolute_path>C:\Users\DELL\Jupyter_Notebooks\TRACK_QA\EXPERTS_OUTPUT\EXPERT_A_DSP\CONTEXT\FULL_qais_part_C_report.md</absolute_path>
+    <description>the most extreme delta values in the batch; good stress-test for interrogating whether the numbers make physical sense</description>
+    <file_content>
+# Audio QA Report — FULL_qais_part_C.wav
+
+| | |
+|---|---|
+| **Consistency Score** | **76.5/100** |
+| **Verdict** | REVIEW — minor deviations present |
+
+## Feature Comparison
+
+| Feature                     | Unit | Reference |    Chunk |     Delta | Flag |
+| --------------------------- | ---- | --------- | -------- | --------- | --- |
+| LUFS                        | LUFS |    -14.21 |   -15.50 |     -1.29 | ✓ |
+| RMS energy                  |      |  0.133887 | 0.113678 | -0.020209 | ✓ |
+| Dynamic range               | dB   |     12.70 |    13.29 |     +0.59 | ✓ |
+| Spectral centroid           | Hz   |    3578.4 |   4640.1 |   +1061.7 | ⚠ |
+| Spectral rolloff            | Hz   |    8433.8 |  10886.8 |   +2453.0 | ⚠ |
+| Low-mid energy (200–500 Hz) | frac |  0.169636 | 0.157764 | -0.011872 | ✓ |
+| Presence band (1k–4kHz)     | frac |  0.095966 | 0.085645 | -0.010320 | ✓ |
+| High shelf (8kHz+)          | frac |  0.018186 | 0.027268 | +0.009082 | ✓ |
+| Stereo width                |      |  0.085289 | 0.076810 | -0.008479 | ✓ |
+| Tempo                       | BPM  |     112.5 |    165.4 |     +52.9 | ✓ |
+| Zero crossing rate          |      |  0.059882 | 0.074188 | +0.014307 | ✓ |
+| MFCC distance               |      |    0.0000 |   8.3931 |   +8.3931 | ⚠ |
+
+## MFCC Detail (13 Coefficients)
+
+| Coeff | Reference  | Chunk      | Delta      | Role         |
+| :---: | ---------: | ---------: | ---------: | :----------- |
+| 01    |  -180.6576 |  -180.1799 |    +0.4777 | energy       |
+| 02    |   112.6220 |    94.6284 |   -17.9936 | tonal char   |
+| 03    |   -19.8035 |    -2.5939 |   +17.2096 | tonal char   |
+| 04    |    58.0204 |    50.2523 |    -7.7681 | mid timbre   |
+| 05    |    -4.6828 |     0.0435 |    +4.7262 | mid timbre   |
+| 06    |    42.3066 |    39.5822 |    -2.7244 | mid timbre   |
+| 07    |   -23.4139 |   -23.9095 |    -0.4956 | mid timbre   |
+| 08    |    15.7395 |    24.6761 |    +8.9366 | fine texture |
+| 09    |     4.1003 |    -4.3445 |    -8.4448 | fine texture |
+| 10    |    -4.9099 |     9.8932 |   +14.8032 | fine texture |
+| 11    |    -1.2732 |   -10.2135 |    -8.9403 | fine texture |
+| 12    |     4.2648 |    15.6678 |   +11.4030 | fine texture |
+| 13    |     4.9427 |    -0.2449 |    -5.1876 | fine texture |
+
+## Flagged Deviations
+
+- **Spectral centroid** `+1061.7 Hz` — Mix brighter than reference — possible harshness
+- **Spectral rolloff** `+2453.0 Hz` — Spectral rolloff higher — more high-frequency content than reference
+- **MFCC distance** `+8.3931` — Timbre fingerprint mismatch — overall tonal character differs
+
+## Diagnostic Summary
+
+&gt; *Paste the block below directly into an LLM prompt.*
+
+```
+DIAGNOSTIC SUMMARY — FULL_qais_part_C.wav
+Consistency Score: 76.5/100
+Flagged issues:
+  - Mix brighter than reference — possible harshness  (delta: +1061.7 Hz)
+  - Spectral rolloff higher — more high-frequency content than reference  (delta: +2453.0 Hz)
+  - Timbre fingerprint mismatch — overall tonal character differs  (delta: +8.3931)
+
+Subjective note from user: [paste what you hear here]
+```
+
+    </file_content>
+  </context_file>
+</expert_context>
