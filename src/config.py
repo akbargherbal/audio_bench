@@ -34,12 +34,12 @@ a key is present in one but missing from the other.
 #                        low (0.5) but threshold may need widening. Monitor.
 #   mfcc_distance ±5.0  — MFCC coefficients have varying scales. If real
 #                        chunks that sound correct score >5.0, widen to ±8.0.
-#   stereo_width ±0.15  — RECALIBRATION REQUIRED after Session 8 fix.
-#                         Previous metric: mean(abs(L - R)) — absolute amplitude, not normalised.
-#                         New metric: Side/Mid RMS ratio — scale approximately [0.0, 1.0+].
-#                         ±0.15 was calibrated against the old metric and is no longer valid.
-#                         Run full batch after fix, observe actual S/M ratio deltas,
-#                         and reset this threshold before treating stereo scores as authoritative.
+#   stereo_width ±0.10  — Recalibrated Session 9 against post-fix batch (6 chunks).
+#                         Metric: Side/Mid RMS ratio. Reference = 0.408783.
+#                         Batch max delta = 0.064 (Part A). Threshold set to ±0.10
+#                         for headroom while remaining meaningfully tighter than the
+#                         obsolete ±0.15 (which was calibrated against abs(L-R)).
+#                         Monitor: tighten to ±0.07 if false negatives emerge.
 # ---------------------------------------------------------------------------
 
 THRESHOLDS: dict[str, float] = {
@@ -51,7 +51,10 @@ THRESHOLDS: dict[str, float] = {
     "low_mid_energy": 0.10,  # ±0.10 frac  — muddiness band [0,1]
     "presence_band": 0.10,  # ±0.10 frac  — vocal clarity band [0,1]
     "high_shelf": 0.05,  # ±0.05 frac  — air/harshness [0,1] ⚠ watch
-    "stereo_width": 0.15,  # ±0.15       — spatial consistency
+    "stereo_width": 0.10,  # ±0.10       — spatial consistency (recalibrated Session 9)
+                           #               S/M RMS ratio scale; ref = 0.408783
+                           #               batch max delta = 0.064 (Part A); headroom retained
+                           #               old value ±0.15 was calibrated against obsolete abs(L-R)
     "tempo": 999.0,  # Disabled    — pacing (unreliable on poetry)
     "mfcc_distance": 7.0,  # ±7.0        — timbre fingerprint (widened from 5.0)
     "zcr": 0.05,  # ±0.05       — noise/distortion indicator
