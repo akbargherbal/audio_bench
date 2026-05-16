@@ -164,7 +164,7 @@ No file outside this map should be created without explicit decision.
 | Low-mid energy (200–500 Hz)  | frac [0,1] | `librosa`    | Muddiness indicator                        |
 | Presence band (1k–4kHz)      | frac [0,1] | `librosa`    | Vocal clarity / cut-through                |
 | High shelf (8kHz+)           | frac [0,1] | `librosa`    | Air / harshness                            |
-| Stereo width                 | —          | `librosa`    | Mean abs(L−R); 0.0 if mono                 |
+| Stereo width                 | —          | `librosa`    | Side/Mid RMS ratio; 0.0 if mono            |
 | Tempo                        | BPM        | `librosa`    | Unreliable on poetry — disabled in scoring |
 | MFCCs (13 coefficients)      | —          | `librosa`    | Timbre fingerprint                         |
 | Zero crossing rate           | —          | `librosa`    | Noisiness / distortion indicator           |
