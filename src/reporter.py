@@ -567,3 +567,326 @@ def generate_prompt_debug_report(chunk_name: str, analysis: dict, score: dict) -
         _section_llm_summary(chunk_name, analysis, score),
         _section_prompt_implications(analysis, score),
     ])
+
+
+# ---------------------------------------------------------------------------
+# Phase 6 — Ceiling Analysis Report (FR-9)
+# ---------------------------------------------------------------------------
+
+# Features excluded from ceiling comparison — genre-specific.
+# Mirrors CEILING_THRESHOLDS exclusion list in config.py.
+# Must stay in sync manually if config.py is ever revised.
+_CEILING_EXCLUDED_DISPLAY: list[str] = [
+    "High shelf (8kHz+)",
+    "Stereo width",
+    "Tempo",
+]
+
+# Display order for included ceiling features (matches CEILING_THRESHOLDS key order)
+_CEILING_FEATURE_ORDER: list[str] = [
+    "lufs",
+    "rms",
+    "dynamic_range",
+    "spectral_centroid",
+    "spectral_rolloff",
+    "low_mid_energy",
+    "presence_band",
+    "zcr",
+    "mfcc_distance",
+]
+
+
+def _get_ceiling_flag_label(feature: str, delta: float) -> str:
+    """
+    Plain-English red-flag label for ceiling analysis.
+
+    Labels are framed as production hygiene failures, not style differences.
+    Each label ends with a parenthetical hygiene reminder so that copy-pasted
+    context is never misread as a genre-match failure.
+    """
+    if feature == "lufs":
+        return (
+            "Chunk is significantly quieter than commercial production norms — "
+            "possible vocal burial. *(Hygiene flag, not a loudness target.)*"
+            if delta < 0 else
+            "Chunk is significantly louder than commercial reference — "
+            "possible clipping or overload. *(Hygiene flag, not a loudness target.)*"
+        )
+    if feature == "rms":
+        return (
+            "Chunk energy significantly below commercial reference — "
+            "may sound weak or underproduced. *(Hygiene flag.)*"
+            if delta < 0 else
+            "Chunk energy significantly above commercial reference. *(Hygiene flag.)*"
+        )
+    if feature == "dynamic_range":
+        return (
+            "Dynamic range severely squashed vs commercial reference — "
+            "likely over-compressed. *(Hygiene flag.)*"
+            if delta < 0 else
+            "Dynamic range severely expanded vs commercial reference — "
+            "unusually uncompressed for production context. *(Hygiene flag.)*"
+        )
+    if feature == "spectral_centroid":
+        return (
+            "Mix extremely dark vs commercial reference — "
+            "tonal balance may be a production issue. *(Hygiene flag.)*"
+            if delta < 0 else
+            "Mix extremely bright vs commercial reference — "
+            "possible harshness or production imbalance. *(Hygiene flag.)*"
+        )
+    if feature == "spectral_rolloff":
+        return (
+            "High-frequency content severely reduced vs commercial reference. "
+            "*(Hygiene flag.)*"
+            if delta < 0 else
+            "High-frequency content severely elevated vs commercial reference. "
+            "*(Hygiene flag.)*"
+        )
+    if feature == "low_mid_energy":
+        return (
+            "Severe low-mid buildup vs commercial reference — "
+            "possible muddiness (200–500 Hz). *(Hygiene flag.)*"
+            if delta > 0 else
+            "Low-mid energy severely below commercial reference — "
+            "mix may sound thin in the body range. *(Hygiene flag.)*"
+        )
+    if feature == "presence_band":
+        return (
+            "Vocal severely buried vs commercial reference — "
+            "very low cut-through in 1k–4kHz range. *(Hygiene flag.)*"
+            if delta < 0 else
+            "Vocal presence severely elevated vs commercial reference — "
+            "strong mid-range peak. *(Hygiene flag.)*"
+        )
+    if feature == "zcr":
+        return (
+            "Significantly elevated noise or distortion vs commercial reference. "
+            "*(Hygiene flag.)*"
+            if delta > 0 else
+            "Zero crossing rate severely below commercial reference. *(Hygiene flag.)*"
+        )
+    if feature == "mfcc_distance":
+        return (
+            "Timbral character grossly different from commercial reference. "
+            "*(Hygiene flag — large distance may reflect genre, not a defect.)*"
+        )
+    # Generic fallback
+    direction = "above" if delta > 0 else "below"
+    return (
+        f"{_FEATURE_DISPLAY.get(feature, feature)} is grossly {direction} "
+        f"commercial reference. *(Hygiene flag.)*"
+    )
+
+
+def generate_ceiling_report(
+    chunk_name:        str,
+    ceiling_name:      str,
+    chunk_feats:       dict,
+    ceiling_feats:     dict,
+    deltas:            dict,
+    red_flags:         list,
+    ceiling_thresholds: dict,
+) -> str:
+    """
+    Phase 6 — Ceiling analysis Markdown report.
+
+    Compares chunk against a commercial reference on production hygiene
+    features only. Does NOT share structure with generate_report() — this
+    is a separate, explicitly framed report type.
+
+    Report sections (all always present):
+        1. Header — mandatory disclaimer, summary counts
+        2. Feature comparison table — 9 included features + excluded note
+        3. Red flags — plain-English hygiene labels (or clean message)
+        4. Ceiling analysis summary — paste-ready LLM block
+
+    Args:
+        chunk_name:          Chunk filename (display).
+        ceiling_name:        Commercial track filename (display).
+        chunk_feats:         Raw dict from extract_features() for the chunk.
+        ceiling_feats:       Raw dict from extract_features() for the ceiling track.
+        deltas:              {feature: delta} for included features only.
+                             mfcc_distance must be pre-computed and present.
+        red_flags:           List of feature keys that exceeded ceiling thresholds.
+        ceiling_thresholds:  CEILING_THRESHOLDS from config.py (for table display).
+
+    Returns:
+        str — complete Markdown ceiling report.
+    """
+    n_checked  = len(_CEILING_FEATURE_ORDER)
+    n_flags    = len(red_flags)
+
+    # ------------------------------------------------------------------
+    # Section 1 — Header + mandatory disclaimer
+    # ------------------------------------------------------------------
+    flag_verdict = "No red flags raised." if n_flags == 0 else f"{n_flags} red flag(s) raised."
+
+    header = "\n".join([
+        f"# Audio QA: Ceiling Analysis — {chunk_name}",
+        "",
+        "> ⚠ **PRODUCTION HYGIENE CHECK — NOT A STYLE TARGET**",
+        f"> This report compares **{chunk_name}** against a commercial reference",
+        f"> (`{ceiling_name}`) to detect gross production failures only.",
+        "> These are **red flags**, not genre norms. Features excluded below",
+        "> are genre-specific and are intentionally not compared.",
+        "",
+        "| | |",
+        "|---|---|",
+        f"| **Chunk** | {chunk_name} |",
+        f"| **Commercial reference** | {ceiling_name} |",
+        f"| **Features checked** | {n_checked} of 12 |",
+        f"| **Red flags raised** | {n_flags} — {flag_verdict} |",
+        "",
+    ])
+
+    # ------------------------------------------------------------------
+    # Section 2 — Feature comparison table
+    # ------------------------------------------------------------------
+    rows: list[tuple] = []
+    for key in _CEILING_FEATURE_ORDER:
+        display   = _FEATURE_DISPLAY[key]
+        unit      = _FEATURE_UNITS[key]
+        delta     = deltas[key]
+        threshold = ceiling_thresholds[key]
+        is_flagged = key in red_flags
+
+        fmt = _FEATURE_FMT.get(key, ".4f")
+
+        if key == "mfcc_distance":
+            ref_str   = format(0.0, fmt)
+            chunk_str = format(delta, fmt)
+        else:
+            ref_str   = format(ceiling_feats[key], fmt)
+            chunk_str = format(chunk_feats[key], fmt)
+
+        sign      = "+" if delta >= 0 else ""
+        delta_str = f"{sign}{format(delta, fmt)}"
+        thr_str   = f"±{format(threshold, fmt)}"
+
+        rows.append((
+            display,
+            unit,
+            ref_str,
+            chunk_str,
+            delta_str,
+            thr_str,
+            "⚠" if is_flagged else "✓",
+        ))
+
+    hdr    = ("Feature", "Unit", "Ceiling Ref", "Chunk", "Delta", "Threshold", "Flag")
+    widths = [
+        max(len(hdr[i]), max(len(r[i]) for r in rows))
+        for i in range(len(hdr))
+    ]
+
+    def _row(*cells):
+        return (
+            f"| {cells[0]:<{widths[0]}} "
+            f"| {cells[1]:<{widths[1]}} "
+            f"| {cells[2]:>{widths[2]}} "
+            f"| {cells[3]:>{widths[3]}} "
+            f"| {cells[4]:>{widths[4]}} "
+            f"| {cells[5]:>{widths[5]}} "
+            f"| {cells[6]} |"
+        )
+
+    sep = (
+        f"| {'-'*widths[0]} "
+        f"| {'-'*widths[1]} "
+        f"| {'-'*widths[2]:>{widths[2]}} "
+        f"| {'-'*widths[3]:>{widths[3]}} "
+        f"| {'-'*widths[4]:>{widths[4]}} "
+        f"| {'-'*widths[5]:>{widths[5]}} "
+        f"| --- |"
+    )
+
+    excluded_note = (
+        f"*Not compared (genre-specific): "
+        f"{', '.join(_CEILING_EXCLUDED_DISPLAY)}.*"
+    )
+
+    table_lines = ["## Feature Comparison (Production Hygiene Features Only)", ""]
+    table_lines += [_row(*hdr), sep]
+    for r in rows:
+        table_lines.append(_row(*r))
+    table_lines += ["", excluded_note, ""]
+    feature_table = "\n".join(table_lines)
+
+    # ------------------------------------------------------------------
+    # Section 3 — Red flags
+    # ------------------------------------------------------------------
+    flag_lines = ["## Red Flags", ""]
+    if not red_flags:
+        flag_lines += [
+            "_No red flags raised — no gross production hygiene violations detected._",
+            "_All checked features are within the ceiling tolerance band._",
+            "",
+        ]
+    else:
+        for feature in red_flags:
+            delta   = deltas[feature]
+            label   = _get_ceiling_flag_label(feature, delta)
+            display = _FEATURE_DISPLAY[feature]
+            unit    = _FEATURE_UNITS.get(feature, "")
+            sign    = "+" if delta >= 0 else ""
+            fmt     = _FEATURE_FMT.get(feature, ".4f")
+            d_str   = f"{sign}{format(delta, fmt)}"
+            d_with_unit = f"{d_str} {unit}".strip()
+            flag_lines.append(f"- **{display}** `{d_with_unit}` — {label}")
+        flag_lines.append("")
+    red_flag_section = "\n".join(flag_lines)
+
+    # ------------------------------------------------------------------
+    # Section 4 — LLM-paste-ready summary block
+    # ------------------------------------------------------------------
+    inner: list[str] = [
+        f"CEILING ANALYSIS — {chunk_name}",
+        f"Commercial reference: {ceiling_name}",
+        f"Red flags raised: {n_flags} of {n_checked} features checked",
+        "",
+    ]
+
+    if red_flags:
+        inner.append("Red flags:")
+        for feature in red_flags:
+            delta   = deltas[feature]
+            display = _FEATURE_DISPLAY[feature]
+            unit    = _FEATURE_UNITS.get(feature, "")
+            sign    = "+" if delta >= 0 else ""
+            fmt     = _FEATURE_FMT.get(feature, ".4f")
+            d_str   = f"{sign}{format(delta, fmt)}"
+            d_with_unit = f"{d_str} {unit}".strip()
+            label   = _get_ceiling_flag_label(feature, delta)
+            # Strip markdown bold/italics for plain-text block
+            plain_label = label.replace("*(", "(").replace(")*", ")").replace("**", "")
+            inner.append(f"  - {display} ({d_with_unit}): {plain_label}")
+    else:
+        inner.append(
+            "No gross production hygiene violations detected. "
+            "All checked features are within the ceiling tolerance band."
+        )
+
+    excluded_plain = ", ".join(_CEILING_EXCLUDED_DISPLAY)
+    inner += [
+        "",
+        f"Features not compared (genre-specific): {excluded_plain}",
+        "",
+        "IMPORTANT: The commercial reference values are NOT style targets.",
+        "These are production hygiene floors only. Genre differences are intentional.",
+        "",
+        "Subjective note from user: [paste what you hear here]",
+    ]
+
+    summary_lines = [
+        "## Ceiling Analysis Summary",
+        "",
+        "> *Paste the block below directly into an LLM prompt.*",
+        "",
+        "```",
+    ]
+    summary_lines.extend(inner)
+    summary_lines += ["```", ""]
+    summary_section = "\n".join(summary_lines)
+
+    return "\n".join([header, feature_table, red_flag_section, summary_section])

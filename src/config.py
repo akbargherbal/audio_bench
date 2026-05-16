@@ -95,3 +95,35 @@ if _missing_in_thresholds:
         f"config.py integrity error: keys in WEIGHTS but missing from THRESHOLDS: "
         f"{sorted(_missing_in_thresholds)}"
     )
+
+# ---------------------------------------------------------------------------
+# Phase 6 — Ceiling Analysis Thresholds (FR-9)
+# Source: AUDIO_QA_Phased_Plan.md, Phase 6
+#
+# PURPOSE: Red-flag detection of gross production hygiene failures only.
+# NOT a style match. NOT targets. NOT genre norms.
+#
+# Excluded features (genre-specific — do NOT add them here):
+#   high_shelf   — genre-specific air/harshness treatment
+#   stereo_width — genre-specific spatial feel
+#   tempo        — unreliable on poetry; not a commercial norm
+#
+# Thresholds are intentionally wide (roughly 2–3× QA thresholds).
+# Only egregious violations should fire — a single flag here is a
+# genuine production hygiene problem, not a stylistic difference.
+#
+# These thresholds are NOT covered by the THRESHOLDS/WEIGHTS integrity
+# check — ceiling analysis has no scoring formula, only binary flags.
+# ---------------------------------------------------------------------------
+
+CEILING_THRESHOLDS: dict[str, float] = {
+    "lufs":              8.0,     # ±8.0 LU    — truly buried or crushed
+    "rms":               0.15,    # ±0.15      — gross energy mismatch
+    "dynamic_range":     8.0,     # ±8.0 dB    — severely squashed or expanded
+    "spectral_centroid": 2500.0,  # ±2500 Hz   — extremely dark or harsh
+    "spectral_rolloff":  4000.0,  # ±4000 Hz   — grossly different freq. balance
+    "low_mid_energy":    0.25,    # ±0.25 frac — severe muddiness buildup
+    "presence_band":     0.25,    # ±0.25 frac — vocal severely buried or peaked
+    "zcr":               0.15,    # ±0.15      — gross noise or distortion
+    "mfcc_distance":     20.0,    # ±20.0      — completely different timbre
+}

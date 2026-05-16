@@ -39,8 +39,8 @@ import sys
 
 from profiler import build_reference_profile, load_reference_profile, analyze_chunk
 from scorer   import score_chunk
-from reporter import generate_report, generate_prompt_debug_report
-from config   import THRESHOLDS, WEIGHTS
+from reporter import generate_report, generate_prompt_debug_report, generate_ceiling_report
+from config   import THRESHOLDS, WEIGHTS, CEILING_THRESHOLDS
 
 _PROFILE_CACHE = "reference_profile.json"
 _REPORTS_DIR   = "reports"
@@ -154,8 +154,103 @@ def run_single(
 
 
 # ---------------------------------------------------------------------------
-# Batch pipeline — Phase 4
+# Ceiling Analysis pipeline — Phase 6
 # ---------------------------------------------------------------------------
+
+def run_ceiling(
+    ceiling_path: str,
+    chunk_path:   str,
+    output_json:  bool = False,
+) -> str:
+    """
+    Phase 6 — Ceiling Analysis pipeline (FR-9).
+
+    Does NOT share code paths with the reference-based QA pipeline.
+    Calls extract_features() directly on both files, computes deltas
+    for the 9 included features, checks against CEILING_THRESHOLDS,
+    and delegates report generation to reporter.generate_ceiling_report().
+
+    Features excluded from comparison (genre-specific):
+        high_shelf, stereo_width, tempo
+
+    Args:
+        ceiling_path: Path to the commercial reference audio file.
+        chunk_path:   Path to the chunk audio file to evaluate.
+        output_json:  If True, return a JSON string instead of Markdown.
+
+    Returns:
+        str — Markdown ceiling report or JSON string.
+    """
+    import numpy as np
+    from extractor import extract_features
+
+    for path, label in [(ceiling_path, "Ceiling reference"), (chunk_path, "Chunk")]:
+        if not os.path.isfile(path):
+            print(f"ERROR: {label} file not found: {path}", file=sys.stderr)
+            sys.exit(1)
+
+    ceiling_name = os.path.basename(ceiling_path)
+    chunk_name   = os.path.basename(chunk_path)
+
+    print(
+        f"  [CEILING] Extracting features from commercial reference: {ceiling_name}",
+        file=sys.stderr,
+    )
+    ceiling_feats = extract_features(ceiling_path)
+
+    print(
+        f"  [CEILING] Extracting features from chunk: {chunk_name}",
+        file=sys.stderr,
+    )
+    chunk_feats = extract_features(chunk_path)
+
+    # Compute MFCC distance — derived metric, not a raw feature from extract_features()
+    ceiling_mfccs = np.array(ceiling_feats["mfcc"])
+    chunk_mfccs   = np.array(chunk_feats["mfcc"])
+    mfcc_distance = float(np.mean(np.abs(chunk_mfccs - ceiling_mfccs)))
+
+    # Compute deltas and red flags for included features only
+    deltas:    dict[str, float] = {}
+    red_flags: list[str]        = []
+
+    for feature, threshold in CEILING_THRESHOLDS.items():
+        if feature == "mfcc_distance":
+            delta = mfcc_distance
+        else:
+            delta = chunk_feats[feature] - ceiling_feats[feature]
+        deltas[feature] = round(delta, 8)
+        if abs(delta) > threshold:
+            red_flags.append(feature)
+
+    if output_json:
+        # Strip mfcc list from values — too verbose for JSON summary
+        def _strip_mfcc(d: dict) -> dict:
+            return {k: v for k, v in d.items() if k != "mfcc"}
+
+        return json.dumps(
+            {
+                "mode":           "ceiling",
+                "chunk_name":     chunk_name,
+                "ceiling_name":   ceiling_name,
+                "red_flags":      red_flags,
+                "n_checked":      len(CEILING_THRESHOLDS),
+                "n_flags":        len(red_flags),
+                "deltas":         deltas,
+                "chunk_values":   _strip_mfcc(chunk_feats),
+                "ceiling_values": _strip_mfcc(ceiling_feats),
+            },
+            indent=2,
+        )
+
+    return generate_ceiling_report(
+        chunk_name=chunk_name,
+        ceiling_name=ceiling_name,
+        chunk_feats=chunk_feats,
+        ceiling_feats=ceiling_feats,
+        deltas=deltas,
+        red_flags=red_flags,
+        ceiling_thresholds=CEILING_THRESHOLDS,
+    )
 
 def _collect_audio_files(folder: str) -> list[str]:
     """
@@ -412,17 +507,34 @@ Examples:
   # Single chunk — JSON output
   python main.py --reference happy_accident.mp3 --chunk chunk_01.mp3 --json
 
+  # Prompt debug mode
+  python main.py --reference happy_accident.mp3 --chunk new_gen.mp3 --mode prompt-debug
+
   # Batch mode — process entire folder, Markdown reports
   python main.py --reference happy_accident.mp3 --batch ./chunks/
 
   # Batch mode — JSON reports
   python main.py --reference happy_accident.mp3 --batch ./chunks/ --json
+
+  # Ceiling analysis — production hygiene red-flag check (Phase 6)
+  python main.py --ceiling elisa_maktooba_leek.mp3 --chunk chunk_01.mp3
 """,
     )
 
     parser.add_argument(
-        "--reference", required=True,
-        help="Reference audio file (WAV or MP3) — your 'Happy Accident' track.",
+        "--reference", required=False, default=None,
+        help=(
+            "Reference audio file (WAV or MP3) — your 'Happy Accident' track. "
+            "Required for all modes except --ceiling."
+        ),
+    )
+    parser.add_argument(
+        "--ceiling", default=None, metavar="FILE",
+        help=(
+            "Commercial reference track for production hygiene check (Phase 6). "
+            "Mutually exclusive with --reference and --batch. "
+            "Use with --chunk only."
+        ),
     )
 
     # --chunk and --batch are mutually exclusive; exactly one is required.
@@ -446,7 +558,8 @@ Examples:
         "--mode", default="qa", choices=["qa", "prompt-debug"],
         help=(
             "[Single mode only] 'qa' = standard QA report (default). "
-            "'prompt-debug' = QA report + Suno Prompt Implications section."
+            "'prompt-debug' = QA report + Suno Prompt Implications section. "
+            "Ignored when --ceiling is set."
         ),
     )
     parser.add_argument(
@@ -455,6 +568,57 @@ Examples:
     )
 
     args = parser.parse_args()
+
+    # -- Validate --reference / --ceiling mutual exclusion -------------------
+    has_reference = args.reference is not None
+    has_ceiling   = args.ceiling   is not None
+
+    if has_reference and has_ceiling:
+        parser.error("--reference and --ceiling are mutually exclusive. Use one or the other.")
+
+    if not has_reference and not has_ceiling:
+        parser.error(
+            "One of --reference or --ceiling is required.\n"
+            "  Standard QA / batch : --reference <file>\n"
+            "  Ceiling analysis    : --ceiling <commercial_track>"
+        )
+
+    # -- Ceiling mode (Phase 6) ----------------------------------------------
+    if has_ceiling:
+        if args.batch:
+            print(
+                "  [MAIN] ERROR: --ceiling is not supported in batch mode. "
+                "Ceiling analysis runs on a single chunk only.\n"
+                "  Use: python main.py --ceiling <track.mp3> --chunk <chunk.mp3>",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+
+        if args.mode != "qa":
+            print(
+                f"  [MAIN] Note: --mode {args.mode} is ignored in ceiling mode.",
+                file=sys.stderr,
+            )
+
+        print(f"\n{'='*64}", file=sys.stderr)
+        print(f"  AUDIO-QA — Ceiling Analysis (Phase 6)", file=sys.stderr)
+        print(f"  Ceiling ref : {args.ceiling}", file=sys.stderr)
+        print(f"  Chunk       : {args.chunk}", file=sys.stderr)
+        print(
+            f"  Framing     : production hygiene only — NOT a style match",
+            file=sys.stderr,
+        )
+        print(f"{'='*64}\n", file=sys.stderr)
+
+        report = run_ceiling(args.ceiling, args.chunk, args.json)
+
+        if args.output:
+            with open(args.output, "w", encoding="utf-8") as fh:
+                fh.write(report)
+            print(f"  [MAIN] Ceiling report written to: {args.output}", file=sys.stderr)
+        else:
+            print(report)
+        return
 
     # -- Batch mode ----------------------------------------------------------
     if args.batch:
