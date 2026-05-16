@@ -1,25 +1,35 @@
 """
-main.py — Phase 3: CLI Entry Point
+main.py — Phase 3 / 4: CLI Entry Point
 Audio QA — Classical Arabic Poem → Suno AI → Audacity Pipeline
 
-Task 3.3 — Wire profiler → scorer → reporter for single reference + single chunk.
+Phase 3 — Task 3.3 : Single reference + single chunk pipeline.
+Phase 4 — Task 4.1 : Batch mode (--batch <folder>) extension.
 
-Usage:
+Usage (single):
     python main.py --reference <ref.mp3>  --chunk <chunk.mp3>
     python main.py --reference <ref.mp3>  --chunk <chunk.mp3>  --output report.md
     python main.py --reference <ref.mp3>  --chunk <chunk.mp3>  --json
 
+Usage (batch):
+    python main.py --reference <ref.mp3>  --batch <folder/>
+    python main.py --reference <ref.mp3>  --batch <folder/>  --json
+
+Batch output:
+    reports/<chunk_stem>_report.md   — one Markdown report per chunk
+    reports/<chunk_stem>_report.json — if --json is set
+    reports/summary.md               — ranked table, worst chunk first
+
 Reference profile caching:
     On first run, reference_profile.json is written to the working directory.
-    On subsequent runs, if --reference matches the cached source, extraction
-    is skipped — the cached profile is loaded instead. This matters in batch
-    use (Phase 4) where re-extracting the reference for every chunk is wasteful.
+    On subsequent runs (including batch), if --reference matches the cached
+    source, extraction is skipped. In batch mode, the reference is extracted
+    once and reused for all chunks — not once per chunk.
 
-Stop condition (Phase 3, per plan):
-    If Consistency Score < 50 for a chunk that sounds correct to the user's ear,
-    a warning is printed to stderr. Recalibrate config.py before Phase 4.
-
-Phase 4 (batch mode) will extend this file. Do not add batch logic here.
+Stop conditions:
+    Single mode : Consistency Score < 50 — recalibrate config.py (Phase 3 plan).
+    Batch mode  : More than one file fails to process — prominent warning is
+                  printed to stderr; batch completes and errors appear in
+                  summary.md.
 """
 
 import argparse
@@ -29,13 +39,34 @@ import sys
 
 from profiler import build_reference_profile, load_reference_profile, analyze_chunk
 from scorer   import score_chunk
-from reporter import generate_report
+from reporter import generate_report, generate_prompt_debug_report
 from config   import THRESHOLDS, WEIGHTS
 
 _PROFILE_CACHE = "reference_profile.json"
+_REPORTS_DIR   = "reports"
+_AUDIO_EXTS    = {".mp3", ".wav"}
+
+# Feature display names for the batch summary table.
+# Mirrors reporter._FEATURE_DISPLAY — defined here to avoid importing a private
+# symbol from reporter.py.
+_SUMMARY_NAMES: dict[str, str] = {
+    "lufs":              "LUFS",
+    "rms":               "RMS energy",
+    "dynamic_range":     "Dynamic range",
+    "spectral_centroid": "Spectral centroid",
+    "spectral_rolloff":  "Spectral rolloff",
+    "low_mid_energy":    "Low-mid energy",
+    "presence_band":     "Presence band",
+    "high_shelf":        "High shelf",
+    "stereo_width":      "Stereo width",
+    "tempo":             "Tempo",
+    "zcr":               "Zero crossing rate",
+    "mfcc_distance":     "MFCC distance",
+}
+
 
 # ---------------------------------------------------------------------------
-# Reference profile caching
+# Reference profile caching  (unchanged from Phase 3)
 # ---------------------------------------------------------------------------
 
 def _load_or_build_reference(reference_path: str) -> dict:
@@ -67,13 +98,14 @@ def _load_or_build_reference(reference_path: str) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Core pipeline
+# Core pipeline — single chunk  (unchanged from Phase 3)
 # ---------------------------------------------------------------------------
 
 def run_single(
     reference_path: str,
     chunk_path:     str,
     output_json:    bool = False,
+    prompt_debug:   bool = False,
 ) -> tuple[str, float]:
     """
     Full pipeline: profiler → scorer → reporter for one chunk.
@@ -82,32 +114,24 @@ def run_single(
         reference_path: Path to the reference audio file.
         chunk_path:     Path to the chunk audio file.
         output_json:    If True, return a JSON string instead of Markdown.
+        prompt_debug:   If True, use generate_prompt_debug_report() which
+                        appends the 'Suno Prompt Implications' section.
 
     Returns:
         (report_str, consistency_score) — score is returned so main() can
         apply the Phase 3 stop condition check without re-parsing the report.
     """
-    # Input validation
     for path, label in [(reference_path, "Reference"), (chunk_path, "Chunk")]:
         if not os.path.isfile(path):
             print(f"ERROR: {label} file not found: {path}", file=sys.stderr)
             sys.exit(1)
 
-    # Step 1 — Reference profile (cached or fresh)
     ref_profile = _load_or_build_reference(reference_path)
-
-    # Step 2 — Chunk analysis (deltas against reference)
-    analysis = analyze_chunk(chunk_path, ref_profile)
-
-    # Step 3 — Consistency score
-    score = score_chunk(analysis, THRESHOLDS, WEIGHTS)
-
-    # Step 4 — Report
-    chunk_name = os.path.basename(chunk_path)
+    analysis    = analyze_chunk(chunk_path, ref_profile)
+    score       = score_chunk(analysis, THRESHOLDS, WEIGHTS)
+    chunk_name  = os.path.basename(chunk_path)
 
     if output_json:
-        # JSON mode — emit full analysis + score dict.
-        # Keeps mfcc_deltas as a plain list; mfcc in values as a plain list.
         report_str = json.dumps(
             {
                 "chunk_name": chunk_name,
@@ -121,10 +145,251 @@ def run_single(
             },
             indent=2,
         )
+    elif prompt_debug:
+        report_str = generate_prompt_debug_report(chunk_name, analysis, score)
     else:
         report_str = generate_report(chunk_name, analysis, score)
 
     return report_str, score["consistency_score"]
+
+
+# ---------------------------------------------------------------------------
+# Batch pipeline — Phase 4
+# ---------------------------------------------------------------------------
+
+def _collect_audio_files(folder: str) -> list[str]:
+    """
+    Return a sorted list of absolute paths for all .mp3 / .wav files in folder.
+    Sorting is alphabetical so run order is deterministic and matches typical
+    chunk naming conventions (chunk_01, chunk_02, …).
+    Subdirectories are ignored — flat scan only.
+    """
+    return sorted(
+        os.path.join(folder, f)
+        for f in os.listdir(folder)
+        if os.path.isfile(os.path.join(folder, f))
+        and os.path.splitext(f)[1].lower() in _AUDIO_EXTS
+    )
+
+
+def _write_summary(results: list[dict]) -> None:
+    """
+    Write reports/summary.md.
+
+    Layout:
+        Ranked table — successful chunks sorted by Consistency Score ascending
+                       (worst first).
+        Error table  — appended below the ranked table if any chunk failed.
+
+    Each result dict must contain:
+        chunk_name  str         — filename
+        score       float|None  — None when processing failed
+        flagged     list[str]   — feature keys that were flagged (may be empty)
+        error       str|None    — error message if failed, else None
+    """
+    successes = sorted(
+        [r for r in results if r["error"] is None],
+        key=lambda r: r["score"],
+    )
+    errors = [r for r in results if r["error"] is not None]
+
+    lines: list[str] = [
+        "# Audio QA — Batch Summary",
+        "",
+        "_Sorted by Consistency Score — worst first._",
+        "",
+        "| Rank | Chunk | Consistency Score | Flagged Features |",
+        "|:----:|:------|------------------:|:-----------------|",
+    ]
+
+    for rank, r in enumerate(successes, start=1):
+        flagged_display = (
+            ", ".join(_SUMMARY_NAMES.get(f, f) for f in r["flagged"])
+            if r["flagged"] else "—"
+        )
+        lines.append(
+            f"| {rank} "
+            f"| {r['chunk_name']} "
+            f"| {int(r['score'])}/100 "
+            f"| {flagged_display} |"
+        )
+
+    if errors:
+        lines += [
+            "",
+            "### Processing Errors",
+            "",
+            "| Chunk | Error |",
+            "|:------|:------|",
+        ]
+        for r in errors:
+            err_msg   = r["error"]
+            err_short = err_msg[:120] + "…" if len(err_msg) > 120 else err_msg
+            lines.append(f"| {r['chunk_name']} | `{err_short}` |")
+
+    lines.append("")
+
+    summary_path = os.path.join(_REPORTS_DIR, "summary.md")
+    with open(summary_path, "w", encoding="utf-8") as fh:
+        fh.write("\n".join(lines))
+
+    print(f"  [BATCH] Summary written to: {summary_path}", file=sys.stderr)
+
+
+def run_batch(reference_path: str, batch_folder: str, output_json: bool = False) -> None:
+    """
+    Batch pipeline: process all .mp3 / .wav files in batch_folder.
+
+    The reference profile is loaded once and reused for every chunk — extraction
+    happens at most once per batch run (or is served from cache).
+
+    For each chunk:
+        Runs profiler.analyze_chunk → scorer.score_chunk → reporter.generate_report
+        Writes the report to reports/<chunk_stem>_report.md  (or .json if --json)
+
+    After all chunks:
+        Writes reports/summary.md sorted worst-first.
+
+    Stop condition (plan Phase 4):
+        If more than one file fails, a prominent warning is printed to stderr.
+        The batch always completes — errors surface in summary.md.
+
+    Args:
+        reference_path: Path to the reference audio file (WAV or MP3).
+        batch_folder:   Path to folder containing chunk audio files.
+        output_json:    If True, write .json reports instead of .md.
+    """
+    # -- Validate inputs -----------------------------------------------------
+    if not os.path.isfile(reference_path):
+        print(f"ERROR: Reference file not found: {reference_path}", file=sys.stderr)
+        sys.exit(1)
+
+    if not os.path.isdir(batch_folder):
+        print(f"ERROR: Batch folder not found: {batch_folder}", file=sys.stderr)
+        sys.exit(1)
+
+    audio_files = _collect_audio_files(batch_folder)
+
+    if not audio_files:
+        print(
+            f"ERROR: No .mp3 or .wav files found in: {batch_folder}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    # -- Setup ---------------------------------------------------------------
+    os.makedirs(_REPORTS_DIR, exist_ok=True)
+    report_ext = ".json" if output_json else ".md"
+
+    print(f"\n{'='*64}", file=sys.stderr)
+    print(f"  AUDIO-QA — Batch Mode", file=sys.stderr)
+    print(f"  Reference : {reference_path}", file=sys.stderr)
+    print(f"  Folder    : {batch_folder}", file=sys.stderr)
+    print(f"  Chunks    : {len(audio_files)} file(s) found", file=sys.stderr)
+    print(f"  Output    : {_REPORTS_DIR}/", file=sys.stderr)
+    print(f"{'='*64}\n", file=sys.stderr)
+
+    # -- Load reference ONCE (cache-aware) -----------------------------------
+    ref_profile = _load_or_build_reference(reference_path)
+
+    # -- Process each chunk --------------------------------------------------
+    results: list[dict] = []
+    error_count = 0
+
+    for i, chunk_path in enumerate(audio_files, start=1):
+        chunk_name      = os.path.basename(chunk_path)
+        chunk_stem      = os.path.splitext(chunk_name)[0]
+        report_filename = f"{chunk_stem}_report{report_ext}"
+        report_path     = os.path.join(_REPORTS_DIR, report_filename)
+
+        print(f"  [BATCH] ({i}/{len(audio_files)}) {chunk_name}", file=sys.stderr)
+
+        try:
+            analysis = analyze_chunk(chunk_path, ref_profile)
+            score    = score_chunk(analysis, THRESHOLDS, WEIGHTS)
+
+            if output_json:
+                report_str = json.dumps(
+                    {
+                        "chunk_name": chunk_name,
+                        "analysis": {
+                            "chunk_path":       analysis["chunk_path"],
+                            "chunk_values":     analysis["chunk_values"],
+                            "reference_values": analysis["reference_values"],
+                            "deltas":           analysis["deltas"],
+                        },
+                        "score": score,
+                    },
+                    indent=2,
+                )
+            else:
+                report_str = generate_report(chunk_name, analysis, score)
+
+            with open(report_path, "w", encoding="utf-8") as fh:
+                fh.write(report_str)
+
+            consistency_score = score["consistency_score"]
+            flagged           = score["flagged_features"]
+            flag_display      = (
+                ", ".join(_SUMMARY_NAMES.get(f, f) for f in flagged) or "none"
+            )
+
+            print(
+                f"           Score: {consistency_score}/100  "
+                f"Flagged: {flag_display}",
+                file=sys.stderr,
+            )
+            if consistency_score < 50:
+                print(
+                    f"           ⚠  Score below 50 — review this chunk carefully.",
+                    file=sys.stderr,
+                )
+
+            results.append({
+                "chunk_name": chunk_name,
+                "score":      consistency_score,
+                "flagged":    flagged,
+                "error":      None,
+            })
+
+        except Exception as exc:
+            error_count += 1
+            error_msg = str(exc)
+            print(f"           ERROR — {error_msg}", file=sys.stderr)
+            results.append({
+                "chunk_name": chunk_name,
+                "score":      None,
+                "flagged":    [],
+                "error":      error_msg,
+            })
+
+    # -- Stop condition (plan Phase 4) ---------------------------------------
+    if error_count > 1:
+        print("", file=sys.stderr)
+        print(
+            f"  ⚠  STOP CONDITION — {error_count} files failed to process.",
+            file=sys.stderr,
+        )
+        print(
+            "     This exceeds the plan's tolerance of 1 failure.",
+            file=sys.stderr,
+        )
+        print(
+            "     Review errors above and in summary.md before treating "
+            "these results as authoritative.",
+            file=sys.stderr,
+        )
+        print("", file=sys.stderr)
+
+    # -- Summary -------------------------------------------------------------
+    _write_summary(results)
+
+    processed = len(audio_files) - error_count
+    print(
+        f"\n  [BATCH] Done — {processed}/{len(audio_files)} chunk(s) processed "
+        f"successfully.\n",
+        file=sys.stderr,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -138,14 +403,20 @@ def main() -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Basic run — Markdown report to stdout
+  # Single chunk — Markdown report to stdout
   python main.py --reference happy_accident.mp3 --chunk chunk_01.mp3
 
-  # Save report to file
+  # Single chunk — save report to file
   python main.py --reference happy_accident.mp3 --chunk chunk_01.mp3 --output reports/chunk_01_report.md
 
-  # JSON output for downstream processing
+  # Single chunk — JSON output
   python main.py --reference happy_accident.mp3 --chunk chunk_01.mp3 --json
+
+  # Batch mode — process entire folder, Markdown reports
+  python main.py --reference happy_accident.mp3 --batch ./chunks/
+
+  # Batch mode — JSON reports
+  python main.py --reference happy_accident.mp3 --batch ./chunks/ --json
 """,
     )
 
@@ -153,39 +424,75 @@ Examples:
         "--reference", required=True,
         help="Reference audio file (WAV or MP3) — your 'Happy Accident' track.",
     )
-    parser.add_argument(
-        "--chunk", required=True,
-        help="Chunk audio file to analyse (WAV or MP3).",
+
+    # --chunk and --batch are mutually exclusive; exactly one is required.
+    mode_group = parser.add_mutually_exclusive_group(required=True)
+    mode_group.add_argument(
+        "--chunk",
+        metavar="FILE",
+        help="Single chunk audio file to analyse (WAV or MP3).",
     )
+    mode_group.add_argument(
+        "--batch",
+        metavar="FOLDER",
+        help="Folder of .mp3/.wav chunk files to analyse in batch mode.",
+    )
+
     parser.add_argument(
         "--output", default=None, metavar="FILE",
-        help="Write report to FILE instead of stdout. Parent directory must exist.",
+        help="[Single mode only] Write report to FILE instead of stdout.",
+    )
+    parser.add_argument(
+        "--mode", default="qa", choices=["qa", "prompt-debug"],
+        help=(
+            "[Single mode only] 'qa' = standard QA report (default). "
+            "'prompt-debug' = QA report + Suno Prompt Implications section."
+        ),
     )
     parser.add_argument(
         "--json", action="store_true",
-        help="Output raw JSON (analysis + score) instead of Markdown report.",
+        help="Output raw JSON instead of Markdown.",
     )
 
     args = parser.parse_args()
 
+    # -- Batch mode ----------------------------------------------------------
+    if args.batch:
+        if args.output:
+            print(
+                "  [MAIN] Note: --output is ignored in batch mode. "
+                "Reports are written automatically to reports/.",
+                file=sys.stderr,
+            )
+        if args.mode == "prompt-debug":
+            print(
+                "  [MAIN] Note: --mode prompt-debug is not supported in batch mode. "
+                "Run single-chunk mode for prompt debugging.",
+                file=sys.stderr,
+            )
+        run_batch(args.reference, args.batch, args.json)
+        return
+
+    # -- Single mode (Phase 3 / 5 logic) ------------------------------------
+    is_prompt_debug = args.mode == "prompt-debug"
+    mode_label      = "Prompt Debug" if is_prompt_debug else "Single Chunk Analysis"
+
     print(f"\n{'='*64}", file=sys.stderr)
-    print(f"  AUDIO-QA — Single Chunk Analysis", file=sys.stderr)
+    print(f"  AUDIO-QA — {mode_label}", file=sys.stderr)
     print(f"  Reference : {args.reference}", file=sys.stderr)
     print(f"  Chunk     : {args.chunk}", file=sys.stderr)
+    if is_prompt_debug:
+        print(f"  Mode      : prompt-debug (Suno Prompt Implications enabled)", file=sys.stderr)
     print(f"{'='*64}\n", file=sys.stderr)
 
     report, consistency_score = run_single(
         reference_path=args.reference,
         chunk_path=args.chunk,
         output_json=args.json,
+        prompt_debug=is_prompt_debug,
     )
 
-    # -----------------------------------------------------------------------
-    # Phase 3 stop condition check (plan Section 3, Task 3.3)
-    # If score < 50 for a chunk that SOUNDS correct: thresholds need
-    # recalibration. Print prominent warning to stderr — does NOT suppress
-    # the report, so the user can still read what fired.
-    # -----------------------------------------------------------------------
+    # Phase 3 stop condition (plan Section 3, Task 3.3)
     if consistency_score < 50:
         print("", file=sys.stderr)
         print("  ⚠  STOP CONDITION — Consistency Score is below 50", file=sys.stderr)
@@ -195,12 +502,12 @@ Examples:
         print("     → do not treat this score as authoritative.", file=sys.stderr)
         print("", file=sys.stderr)
     elif consistency_score < 65:
-        print(f"\n  ℹ  Note: Score {consistency_score}/100 — review flagged features "
-              f"before assembly.\n", file=sys.stderr)
+        print(
+            f"\n  ℹ  Note: Score {consistency_score}/100 — review flagged features "
+            f"before assembly.\n",
+            file=sys.stderr,
+        )
 
-    # -----------------------------------------------------------------------
-    # Output — file or stdout
-    # -----------------------------------------------------------------------
     if args.output:
         with open(args.output, "w", encoding="utf-8") as fh:
             fh.write(report)

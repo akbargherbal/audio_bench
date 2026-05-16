@@ -393,6 +393,129 @@ def _section_llm_summary(chunk_name: str, analysis: dict, score: dict) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Phase 5 — Prompt implications section
+# Source: AUDIO_QA_Phased_Plan.md, Phase 5, prompt implication map v1
+# ---------------------------------------------------------------------------
+
+# Maps flagged feature key → (condition_fn, implication_str)
+# condition_fn receives delta and returns True when the implication applies.
+# Multiple entries per feature are allowed (high vs low cases).
+_PROMPT_IMPLICATIONS: list[tuple] = [
+    # feature key         condition               implication text
+    ("low_mid_energy",
+     lambda d: d > 0,
+     "Prompt may lack explicit vocal-forward or mix clarity instruction"),
+
+    ("lufs",
+     lambda d: d < 0,
+     "Suno generated a quieter, more restrained performance — check energy/intensity descriptors"),
+
+    ("lufs",
+     lambda d: d >= 0,
+     "Suno generated a louder, more intense performance — check for words like 'powerful', 'full'"),
+
+    ("stereo_width",
+     lambda d: d < 0,
+     "Prompt may be producing a more intimate/close recording — check spatial descriptors"),
+
+    ("spectral_centroid",
+     lambda d: d < 0,
+     "Mix is darker than reference — prompt may lack brightness or air descriptors"),
+
+    ("spectral_centroid",
+     lambda d: d > 0,
+     "Mix is brighter than reference — check for descriptors pushing high-frequency energy (e.g. 'crisp', 'bright', 'airy'); consider softening or removing them"),
+
+    ("spectral_rolloff",
+     lambda d: d > 0,
+     "More high-frequency content than reference — prompt may be over-specifying brightness or air; check descriptors like 'crisp', 'bright', 'open'"),
+
+    ("spectral_rolloff",
+     lambda d: d < 0,
+     "Less high-frequency content than reference — mix is rolling off earlier than reference; prompt may lack air or presence descriptors"),
+
+    ("presence_band",
+     lambda d: d < 0,
+     "Vocal is less forward — consider adding 'vocal-forward', 'clear vocals', 'intimate'"),
+
+    ("presence_band",
+     lambda d: d > 0,
+     "Vocal presence is elevated above reference — mid-range may be peaked; check for descriptors like 'forward', 'present', 'in-your-face'"),
+
+    ("mfcc_distance",
+     lambda d: True,
+     "Overall timbre has drifted — check whether reference audio was attached to this generation"),
+
+    ("tempo",
+     lambda d: True,
+     "Pacing has changed — Suno may have interpreted rhythm cues differently"),
+]
+
+
+def _section_prompt_implications(analysis: dict, score: dict) -> str:
+    """
+    Phase 5 — 'Suno Prompt Implications' section.
+
+    Only rendered when at least one feature is flagged.
+    When Consistency Score = 100 (no flags), replaced with a clean
+    'No significant prompt issues flagged' note.
+
+    Maps each flagged feature to a likely Suno prompt cause using
+    _PROMPT_IMPLICATIONS (v1 map from AUDIO_QA_Phased_Plan.md, Phase 5).
+    """
+    flagged = score["flagged_features"]
+    deltas  = analysis["deltas"]
+
+    lines = ["## Suno Prompt Implications", ""]
+
+    if not flagged:
+        lines += [
+            "_No significant prompt issues flagged — chunk is within reference bounds "
+            "on all metrics._",
+            "",
+        ]
+        return "\n".join(lines)
+
+    # Collect applicable implications — preserve plan order, deduplicate text
+    seen: set[str] = set()
+    implications: list[tuple[str, str]] = []   # (display_name, implication_text)
+
+    for feature_key, condition_fn, implication_text in _PROMPT_IMPLICATIONS:
+        if feature_key not in flagged:
+            continue
+        delta = deltas[feature_key]
+        if not condition_fn(delta):
+            continue
+        if implication_text in seen:
+            continue
+        seen.add(implication_text)
+        display = _FEATURE_DISPLAY.get(feature_key, feature_key)
+        implications.append((display, implication_text))
+
+    if not implications:
+        # Flagged features exist but none matched the implication map
+        # (e.g. rms, dynamic_range, high_shelf, zcr — not in map v1)
+        lines += [
+            "_Flagged features have no direct prompt implication in map v1. "
+            "Review the Flagged Deviations section above for diagnostic detail._",
+            "",
+        ]
+        return "\n".join(lines)
+
+    lines.append(
+        "> *These are diagnostic suggestions, not definitive causes. "
+        "Use alongside your subjective notes.*"
+    )
+    lines.append("")
+
+    for display, implication in implications:
+        lines.append(f"- **{display}** — {implication}")
+
+    lines.append("")
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
@@ -415,4 +538,32 @@ def generate_report(chunk_name: str, analysis: dict, score: dict) -> str:
         _section_mfcc_detail(analysis),
         _section_flagged_deviations(analysis, score),
         _section_llm_summary(chunk_name, analysis, score),
+    ])
+
+
+def generate_prompt_debug_report(chunk_name: str, analysis: dict, score: dict) -> str:
+    """
+    Phase 5 — Prompt debug report.
+
+    Identical to generate_report() with one additional section appended:
+    'Suno Prompt Implications' — maps flagged deviations to likely Suno
+    prompt causes using the v1 implication map from the plan.
+
+    Args:
+        chunk_name: Display name for the chunk (typically os.path.basename).
+        analysis:   Dict returned by profiler.analyze_chunk().
+        score:      Dict returned by scorer.score_chunk().
+
+    Returns:
+        str — complete Markdown report with all five standard sections
+              plus the Suno Prompt Implications section at the end.
+              All sections are always present.
+    """
+    return "\n".join([
+        _section_header(chunk_name, score["consistency_score"]),
+        _section_feature_table(analysis, score),
+        _section_mfcc_detail(analysis),
+        _section_flagged_deviations(analysis, score),
+        _section_llm_summary(chunk_name, analysis, score),
+        _section_prompt_implications(analysis, score),
     ])
