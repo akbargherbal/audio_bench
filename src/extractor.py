@@ -24,6 +24,14 @@ import pyloudnorm as pyln
 
 warnings.filterwarnings("ignore")  # suppress librosa / numba routine noise
 
+# ---------------------------------------------------------------------------
+# BUG-TQ-04 fix — pin all loads to a single sample rate so that MFCC
+# filterbanks and FFT frequency resolution are directly comparable across
+# all files in a project.  If you change this value, delete
+# reference_profile.json first — the cache records the rate used.
+# ---------------------------------------------------------------------------
+TARGET_SR: int = 44100
+
 
 # ---------------------------------------------------------------------------
 # Internal helpers
@@ -104,8 +112,8 @@ def extract_features(filepath: str) -> dict:
 
     Keys returned:
         lufs              float  — integrated loudness in LUFS (negative)
-        rms               float  — mean RMS energy
-        dynamic_range     float  — crest factor in dB (peak / RMS)
+        rms               float  — global waveform RMS energy
+        crest_factor_db   float  — crest factor in dB (20·log10(peak/RMS))
         spectral_centroid float  — brightness in Hz
         spectral_rolloff  float  — high-frequency rolloff in Hz
         low_mid_energy    float  — fraction of total power in 200–500 Hz  [0,1]
@@ -124,7 +132,7 @@ def extract_features(filepath: str) -> dict:
     # Load — librosa float32, shape (2, N) stereo or (N,) mono
     # sr=None preserves the file's native sample rate
     # ------------------------------------------------------------------
-    y, sr = librosa.load(filepath, mono=False, sr=None)
+    y, sr = librosa.load(filepath, mono=False, sr=TARGET_SR)  # TQ-04: pinned
 
     is_stereo = y.ndim == 2
     if is_stereo:
@@ -151,20 +159,26 @@ def extract_features(filepath: str) -> dict:
     lufs = float(meter.integrated_loudness(sf_data))
 
     # ------------------------------------------------------------------
-    # RMS energy
+    # RMS energy — global waveform RMS (BUG-TQ-02 fix)
+    # Was: librosa.feature.rms().mean() — frame-based, quiet frames
+    #       weighted equally regardless of amplitude.
+    # Now: np.sqrt(np.mean(y**2)) — each sample weighted by amplitude
+    #       squared; standard signal RMS definition.
+    # The same value is reused for crest factor below (BUG-TQ-02 fix —
+    # previously a second, separate rms_raw was computed for that purpose).
     # ------------------------------------------------------------------
-    rms = float(librosa.feature.rms(y=y_mono).mean())
+    rms = float(np.sqrt(np.mean(y_mono**2)))
 
     # ------------------------------------------------------------------
-    # Dynamic range — crest factor in dB (peak / RMS)
+    # Crest factor in dB — peak / RMS  (BUG-TQ-01 fix: was misnamed
+    # "dynamic_range"; crest factor and dynamic range are different metrics)
     # ------------------------------------------------------------------
     peak = float(np.max(np.abs(y_mono)))
-    rms_raw = float(np.sqrt(np.mean(y_mono**2)))
-    if rms_raw > 0.0:
-        dynamic_range = float(20.0 * np.log10(peak / rms_raw))
+    if rms > 0.0:
+        crest_factor_db = float(20.0 * np.log10(peak / rms))
     else:
-        dynamic_range = 0.0
-        print("  [WARN] RMS is zero — dynamic_range set to 0.0. Check input file.")
+        crest_factor_db = 0.0
+        print("  [WARN] RMS is zero — crest_factor_db set to 0.0. Check input file.")
 
     # ------------------------------------------------------------------
     # Spectral centroid and rolloff
@@ -203,7 +217,7 @@ def extract_features(filepath: str) -> dict:
     return {
         "lufs": lufs,
         "rms": rms,
-        "dynamic_range": dynamic_range,
+        "crest_factor_db": crest_factor_db,
         "spectral_centroid": spectral_centroid,
         "spectral_rolloff": spectral_rolloff,
         "low_mid_energy": low_mid_energy,
@@ -259,8 +273,8 @@ def extract_vocal_stem_features(vocal_filepath: str, inst_filepath: str) -> dict
     # ------------------------------------------------------------------
     # Load both stems
     # ------------------------------------------------------------------
-    y_voc, sr_voc = librosa.load(vocal_filepath, mono=True, sr=None)
-    y_inst, sr_inst = librosa.load(inst_filepath, mono=True, sr=None)
+    y_voc, sr_voc = librosa.load(vocal_filepath, mono=True, sr=TARGET_SR)  # TQ-04
+    y_inst, sr_inst = librosa.load(inst_filepath, mono=True, sr=TARGET_SR)  # TQ-04
 
     # ------------------------------------------------------------------
     # HNR — Harmonics-to-Noise Ratio via parselmouth (Praat engine)
@@ -374,7 +388,7 @@ if __name__ == "__main__":
     scalar_order = [
         "lufs",
         "rms",
-        "dynamic_range",
+        "crest_factor_db",
         "spectral_centroid",
         "spectral_rolloff",
         "low_mid_energy",
@@ -386,8 +400,8 @@ if __name__ == "__main__":
     ]
     notes = {
         "lufs": "LUFS (must be negative)",
-        "rms": "",
-        "dynamic_range": "dB",
+        "rms": "global waveform RMS",
+        "crest_factor_db": "dB  (20·log10(peak/RMS))",
         "spectral_centroid": "Hz",
         "spectral_rolloff": "Hz",
         "low_mid_energy": "fraction of total power [0-1]",

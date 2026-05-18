@@ -49,10 +49,19 @@ def score_chunk(analysis: dict, thresholds: dict, weights: dict) -> dict:
             total_weight            float  — sum of all weights (denominator)
 
     Note on mfcc_distance:
-        mfcc_distance is a non-negative scalar (mean absolute MFCC delta).
-        abs(mfcc_distance) == mfcc_distance, so the formula is unchanged.
+        mfcc_distance is a cosine distance computed in profiler.py over
+        MFCC coefficients C02–C13 (C01 dropped to prevent loudness differences
+        from dominating the timbre metric). Range: [0, 2].
+        A value of 0 means identical timbre direction; 2 means opposite.
+        abs(mfcc_distance) == mfcc_distance, so the scoring formula is unchanged.
         mfcc_deltas (the 13-element list) is NOT used in scoring — only in
         the report's MFCC detail block.
+        
+        ⚠ CALIBRATION NOTE: The previous threshold was ±7.0, which was set
+        against the old mean-absolute-delta formula and was unreachable by
+        cosine distance (max 2.0). The feature was non-functional for all
+        prior sessions. Current threshold is ±0.15 — recalibrate after the
+        first real batch run if same-voice chunks consistently score below 0.05.
     """
     deltas      = analysis["deltas"]
     total_weight = sum(weights.values())

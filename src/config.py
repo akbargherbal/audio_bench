@@ -32,8 +32,12 @@ a key is present in one but missing from the other.
 #   tempo ±10 BPM       — Arabic poetry meter is irregular. 112.5 BPM from
 #                        reference is almost certainly an artefact. Weight is
 #                        low (0.5) but threshold may need widening. Monitor.
-#   mfcc_distance ±5.0  — MFCC coefficients have varying scales. If real
-#                        chunks that sound correct score >5.0, widen to ±8.0.
+#   mfcc_distance ±0.15 — BUG-TQ-03 fix: previous value ±7.0 (and before
+#                        that ±5.0) were calibrated against mean-absolute-delta
+#                        and were unreachable after the switch to cosine distance
+#                        (range [0,2]). New value ±0.15 is a heuristic starting
+#                        point. Recalibrate after first batch run: if same-voice
+#                        chunks consistently score < 0.05, tighten to ±0.10.
 #   stereo_width ±0.10  — Recalibrated Session 9 against post-fix batch (6 chunks).
 #                         Metric: Side/Mid RMS ratio. Reference = 0.408783.
 #                         Batch max delta = 0.064 (Part A). Threshold set to ±0.10
@@ -45,7 +49,13 @@ a key is present in one but missing from the other.
 THRESHOLDS: dict[str, float] = {
     "lufs": 3.0,  # ±3.0 LU    — loudness consistency (widened from 2.0)
     "rms": 0.05,  # ±0.05       — overall energy level
-    "dynamic_range": 3.0,  # ±3.0 dB     — compression consistency
+                  #               ⚠ BUG-TQ-02 fix: RMS is now global waveform RMS
+                  #               (was frame-based mean). Recalibrate if batch
+                  #               scores shift materially after fix.
+    "crest_factor_db": 3.0,  # ±3.0 dB — crest factor (BUG-TQ-01 fix: was
+                              #            misnamed "dynamic_range"; crest factor
+                              #            = 20·log10(peak/RMS), not macro
+                              #            loudness spread)
     "spectral_centroid": 500.0,  # ±500 Hz     — brightness drift
     "spectral_rolloff": 1000.0,  # ±1000 Hz    — high-frequency content
     "low_mid_energy": 0.10,  # ±0.10 frac  — muddiness band [0,1]
@@ -56,7 +66,14 @@ THRESHOLDS: dict[str, float] = {
                            #               batch max delta = 0.064 (Part A); headroom retained
                            #               old value ±0.15 was calibrated against obsolete abs(L-R)
     "tempo": 999.0,  # Disabled    — pacing (unreliable on poetry)
-    "mfcc_distance": 7.0,  # ±7.0        — timbre fingerprint (widened from 5.0)
+    "mfcc_distance": 0.15,  # ±0.15       — timbre fingerprint (BUG-TQ-03 fix)
+                             # Previous value ±7.0 was calibrated against
+                             # mean-absolute-delta and was NEVER reachable after
+                             # the switch to cosine distance (range [0, 2]).
+                             # The feature was silently non-functional in the scorer
+                             # for all prior sessions. Recalibrate from a real batch
+                             # run: if same-voice chunks consistently score < 0.05
+                             # cosine distance, tighten to 0.10.
     "zcr": 0.05,  # ±0.05       — noise/distortion indicator
 }
 
@@ -67,7 +84,7 @@ THRESHOLDS: dict[str, float] = {
 # Rationale summary:
 #   1.5  lufs, mfcc_distance — highest priority: loudness and voice identity
 #   1.2  presence_band       — vocal clarity is critical for poetry
-#   1.0  centroid, low_mid, stereo_width, dynamic_range — noticeable, equal
+#   1.0  centroid, low_mid, stereo_width, crest_factor_db — noticeable, equal
 #   0.8  rms, rolloff        — correlated/secondary to higher-weight features
 #   0.7  high_shelf          — relevant but secondary
 #   0.5  zcr, tempo          — lowest perceptual priority / unreliable estimate
@@ -80,7 +97,7 @@ WEIGHTS: dict[str, float] = {
     "spectral_centroid": 1.0,
     "low_mid_energy": 1.0,
     "stereo_width": 1.0,
-    "dynamic_range": 1.0,
+    "crest_factor_db": 1.0,
     "rms": 0.8,
     "spectral_rolloff": 0.8,
     "high_shelf": 0.7,
@@ -128,7 +145,8 @@ if _missing_in_thresholds:
 CEILING_THRESHOLDS: dict[str, float] = {
     "lufs": 8.0,  # ±8.0 LU    — truly buried or crushed
     "rms": 0.15,  # ±0.15      — gross energy mismatch
-    "dynamic_range": 8.0,  # ±8.0 dB    — severely squashed or expanded
+    "crest_factor_db": 8.0,  # ±8.0 dB    — severely squashed or expanded
+                              # (BUG-TQ-01 fix: was "dynamic_range")
     "spectral_centroid": 2500.0,  # ±2500 Hz   — extremely dark or harsh
     "spectral_rolloff": 4000.0,  # ±4000 Hz   — grossly different freq. balance
     "low_mid_energy": 0.25,  # ±0.25 frac — severe muddiness buildup

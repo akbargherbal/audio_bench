@@ -28,7 +28,7 @@ NOTE on mfcc_distance in the feature table:
 _SCORE_KEYS: list[str] = [
     "lufs",
     "rms",
-    "dynamic_range",
+    "crest_factor_db",
     "spectral_centroid",
     "spectral_rolloff",
     "low_mid_energy",
@@ -43,7 +43,7 @@ _SCORE_KEYS: list[str] = [
 _FEATURE_DISPLAY: dict[str, str] = {
     "lufs": "LUFS",
     "rms": "RMS energy",
-    "dynamic_range": "Dynamic range",
+    "crest_factor_db": "Crest factor",
     "spectral_centroid": "Spectral centroid",
     "spectral_rolloff": "Spectral rolloff",
     "low_mid_energy": "Low-mid energy (200–500 Hz)",
@@ -58,7 +58,7 @@ _FEATURE_DISPLAY: dict[str, str] = {
 _FEATURE_UNITS: dict[str, str] = {
     "lufs": "LUFS",
     "rms": "",
-    "dynamic_range": "dB",
+    "crest_factor_db": "dB",
     "spectral_centroid": "Hz",
     "spectral_rolloff": "Hz",
     "low_mid_energy": "frac",
@@ -74,7 +74,7 @@ _FEATURE_UNITS: dict[str, str] = {
 _FEATURE_FMT: dict[str, str] = {
     "lufs": ".2f",
     "rms": ".6f",
-    "dynamic_range": ".2f",
+    "crest_factor_db": ".2f",
     "spectral_centroid": ".1f",
     "spectral_rolloff": ".1f",
     "low_mid_energy": ".6f",
@@ -144,11 +144,11 @@ def _get_flag_label(feature: str, delta: float) -> str:
         return "Tempo drift — pacing inconsistency"
     if feature == "mfcc_distance":
         return "Timbre fingerprint mismatch — overall tonal character differs"
-    if feature == "dynamic_range":
+    if feature == "crest_factor_db":
         return (
-            "Over-compressed — dynamic range squashed vs reference"
+            "Crest factor reduced — chunk may be more compressed/limited than reference"
             if delta < 0
-            else "Dynamic range expanded — less compressed than reference"
+            else "Crest factor elevated — chunk has more transient punch than reference"
         )
     if feature == "presence_band":
         return (
@@ -519,7 +519,7 @@ def _section_prompt_implications(analysis: dict, score: dict) -> str:
 
     if not implications:
         # Flagged features exist but none matched the implication map
-        # (e.g. rms, dynamic_range, high_shelf, zcr — not in map v1)
+        # (e.g. rms, crest_factor_db, high_shelf, zcr — not in map v1)
         lines += [
             "_Flagged features have no direct prompt implication in map v1. "
             "Review the Flagged Deviations section above for diagnostic detail._",
@@ -564,7 +564,7 @@ _STEM_SCALAR_KEYS: list[str] = [
     # (it is a derived metric, not a raw extract_features() output).
     "lufs",
     "rms",
-    "dynamic_range",
+    "crest_factor_db",
     "spectral_centroid",
     "spectral_rolloff",
     "low_mid_energy",
@@ -851,7 +851,7 @@ _CEILING_EXCLUDED_DISPLAY: list[str] = [
 _CEILING_FEATURE_ORDER: list[str] = [
     "lufs",
     "rms",
-    "dynamic_range",
+    "crest_factor_db",
     "spectral_centroid",
     "spectral_rolloff",
     "low_mid_energy",
@@ -872,7 +872,7 @@ _CEILING_FEATURE_ORDER: list[str] = [
 _STYLE_COMPARE_FEATURE_ORDER: list[str] = [
     "lufs",
     "rms",
-    "dynamic_range",
+    "crest_factor_db",
     "spectral_centroid",
     "spectral_rolloff",
     "low_mid_energy",
@@ -907,11 +907,11 @@ def _get_style_compare_note(feature: str, delta: float) -> str:
             if delta < 0
             else "Suno track has more overall energy"
         )
-    if feature == "dynamic_range":
+    if feature == "crest_factor_db":
         return (
-            "Suno track is more compressed — less dynamic headroom"
+            "Suno track has lower crest factor — more compressed, less transient punch"
             if delta < 0
-            else "Suno track is less compressed — more dynamic breathing room"
+            else "Suno track has higher crest factor — more dynamic, more transient punch"
         )
     if feature == "spectral_centroid":
         return (
@@ -979,12 +979,12 @@ def _get_ceiling_flag_label(feature: str, delta: float) -> str:
             if delta < 0
             else "Chunk energy significantly above commercial reference. *(Hygiene flag.)*"
         )
-    if feature == "dynamic_range":
+    if feature == "crest_factor_db":
         return (
-            "Dynamic range severely squashed vs commercial reference — "
-            "likely over-compressed. *(Hygiene flag.)*"
+            "Crest factor severely reduced vs commercial reference — "
+            "likely over-compressed or brickwall-limited. *(Hygiene flag.)*"
             if delta < 0
-            else "Dynamic range severely expanded vs commercial reference — "
+            else "Crest factor severely elevated vs commercial reference — "
             "unusually uncompressed for production context. *(Hygiene flag.)*"
         )
     if feature == "spectral_centroid":

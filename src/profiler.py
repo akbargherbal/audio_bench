@@ -14,7 +14,7 @@ import os
 import numpy as np
 from scipy.spatial.distance import cosine
 
-from extractor import extract_features
+from extractor import extract_features, TARGET_SR
 
 # ---------------------------------------------------------------------------
 # Task 2.1 — Reference Profile Builder
@@ -44,6 +44,7 @@ def build_reference_profile(
     print(f"  [PROFILER] Building reference profile from: {filepath}")
     profile = extract_features(filepath)
     profile["_source"] = filepath
+    profile["_sr"] = TARGET_SR  # BUG-TQ-04: record sample rate used
 
     if save_path is not None:
         with open(save_path, "w", encoding="utf-8") as f:
@@ -82,8 +83,8 @@ def analyze_chunk(chunk_path: str, reference_profile: dict) -> dict:
     reference profile.
 
     MFCC handling (two representations, both always present):
-        mfcc_distance  float  — mean(abs(chunk_mfccs - ref_mfccs))
-                                 Used in the consistency score (Phase 3)
+        mfcc_distance  float  — cosine distance on C02–C13 (C01 dropped).
+                                 Range [0, 2]. Used in the consistency score (Phase 3).
         mfcc_deltas    list   — 13 per-coefficient deltas (chunk - reference)
                                  Used in the MFCC detail table in the report
 
@@ -120,7 +121,7 @@ def analyze_chunk(chunk_path: str, reference_profile: dict) -> dict:
     scalar_keys = [
         "lufs",
         "rms",
-        "dynamic_range",
+        "crest_factor_db",
         "spectral_centroid",
         "spectral_rolloff",
         "low_mid_energy",
@@ -239,7 +240,7 @@ if __name__ == "__main__":
     scalar_keys = [
         "lufs",
         "rms",
-        "dynamic_range",
+        "crest_factor_db",
         "spectral_centroid",
         "spectral_rolloff",
         "low_mid_energy",

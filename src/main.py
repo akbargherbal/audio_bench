@@ -47,6 +47,7 @@ from reporter import (
     generate_style_compare_report,
 )
 from config import THRESHOLDS, WEIGHTS, CEILING_THRESHOLDS
+from extractor import TARGET_SR  # BUG-TQ-04: for cache sample-rate check
 
 _PROFILE_CACHE = "reference_profile.json"
 _REPORTS_DIR = "reports"
@@ -58,7 +59,7 @@ _AUDIO_EXTS = {".mp3", ".wav"}
 _SUMMARY_NAMES: dict[str, str] = {
     "lufs": "LUFS",
     "rms": "RMS energy",
-    "dynamic_range": "Dynamic range",
+    "crest_factor_db": "Crest factor",
     "spectral_centroid": "Spectral centroid",
     "spectral_rolloff": "Spectral rolloff",
     "low_mid_energy": "Low-mid energy",
@@ -90,13 +91,21 @@ def _load_or_build_reference(reference_path: str) -> dict:
         try:
             cached = load_reference_profile(_PROFILE_CACHE)
             cached_source = os.path.abspath(cached.get("_source", ""))
-            if cached_source == abs_ref:
+            cached_sr = cached.get("_sr")
+            if cached_source == abs_ref and cached_sr == TARGET_SR:
                 print(f"  [MAIN] Cache hit — using existing {_PROFILE_CACHE}")
                 return cached
-            else:
+            elif cached_source != abs_ref:
                 print(f"  [MAIN] Cache miss — cached source is a different file.")
                 print(f"         Cached : {cached_source}")
                 print(f"         Current: {abs_ref}")
+                print(f"  [MAIN] Rebuilding reference profile...")
+            else:
+                # Source matches but sample rate differs (BUG-TQ-04)
+                print(
+                    f"  [MAIN] Cache sample rate mismatch — "
+                    f"cached at {cached_sr} Hz, current TARGET_SR={TARGET_SR} Hz."
+                )
                 print(f"  [MAIN] Rebuilding reference profile...")
         except Exception as exc:
             print(
@@ -364,7 +373,7 @@ def run_style_compare(
     _STYLE_COMPARE_INCLUDED = {
         "lufs",
         "rms",
-        "dynamic_range",
+        "crest_factor_db",
         "spectral_centroid",
         "spectral_rolloff",
         "low_mid_energy",
