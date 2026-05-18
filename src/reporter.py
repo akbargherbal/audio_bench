@@ -541,11 +541,228 @@ def _section_prompt_implications(analysis: dict, score: dict) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Phase 3 (Stems) — Stem Analysis section
+# Task 3.1: _section_stem_table(stem_data, chunk_values) -> str
+#
+# stem_data structure (assembled by main.run_single):
+#   vocal_features  dict — extract_features() result for the vocal stem
+#   inst_features   dict — extract_features() result for the instrumental stem
+#   vocal_specific  dict — extract_vocal_stem_features() result (5 metrics)
+#
+# chunk_values is analysis["chunk_values"] — the mix-level chunk feature dict.
+# It is passed by generate_report / generate_prompt_debug_report internally;
+# callers do not need to supply it.
+#
+# Locked constraints:
+#   - No deltas, no flags, no scoring — raw values only.
+#   - stem_data never enters scored_features or analysis["deltas"].
+#   - Section is appended BEFORE the LLM Summary block.
+# ---------------------------------------------------------------------------
+
+_STEM_SCALAR_KEYS: list[str] = [
+    # All scored scalar features in display order; mfcc_distance excluded
+    # (it is a derived metric, not a raw extract_features() output).
+    "lufs",
+    "rms",
+    "dynamic_range",
+    "spectral_centroid",
+    "spectral_rolloff",
+    "low_mid_energy",
+    "presence_band",
+    "high_shelf",
+    "stereo_width",
+    "tempo",
+    "zcr",
+]
+
+# Display metadata for the 5 vocal-specific metrics from extract_vocal_stem_features()
+_STEM_METRIC_ORDER: list[str] = [
+    "hnr",
+    "var_db",
+    "pitch_confidence_voiced",
+    "pitch_stability_f0_var",
+    "spectral_flatness_vocal",
+]
+
+_STEM_METRIC_DISPLAY: dict[str, str] = {
+    "hnr":                     "HNR (Harmonics-to-Noise Ratio)",
+    "var_db":                  "VAR (Vocal-to-Accomp. Ratio)",
+    "pitch_confidence_voiced": "Pitch Confidence (voiced frames)",
+    "pitch_stability_f0_var":  "Pitch Stability (F0 variance)",
+    "spectral_flatness_vocal": "Spectral Flatness (vocal stem)",
+}
+
+_STEM_METRIC_UNITS: dict[str, str] = {
+    "hnr":                     "dB",
+    "var_db":                  "dB",
+    "pitch_confidence_voiced": "",
+    "pitch_stability_f0_var":  "Hz²",
+    "spectral_flatness_vocal": "",
+}
+
+_STEM_METRIC_FMT: dict[str, str] = {
+    "hnr":                     ".2f",
+    "var_db":                  ".2f",
+    "pitch_confidence_voiced": ".4f",
+    "pitch_stability_f0_var":  ".2f",
+    "spectral_flatness_vocal": ".6f",
+}
+
+
+def _section_stem_table(stem_data: dict, chunk_values: dict) -> str:
+    """
+    Task 3.1 — Raw stem analysis section.
+
+    Renders two sub-tables:
+      1. Mix-level features across all three sources (Mix chunk | Vocal stem | Inst stem).
+         Uses the same 11 scalar features as the main QA table (mfcc_distance excluded —
+         it is a derived metric not present in raw extract_features() output).
+      2. Vocal-specific metrics (Vocal stem only — 5 metrics from extract_vocal_stem_features()).
+
+    Args:
+        stem_data:    Dict assembled by main.run_single() — keys:
+                        vocal_features, inst_features, vocal_specific.
+        chunk_values: analysis["chunk_values"] from the calling report function.
+                      Provides the mix (unseparated chunk) column values.
+
+    Returns:
+        str — Markdown '## Stem Analysis' section. No deltas, no flags, no score impact.
+    """
+    vocal_feats = stem_data["vocal_features"]
+    inst_feats  = stem_data["inst_features"]
+    vocal_spec  = stem_data["vocal_specific"]
+
+    # ------------------------------------------------------------------
+    # Sub-table 1: Mix-level features — Mix | Vocal | Instrumental
+    # ------------------------------------------------------------------
+    mix_rows: list[tuple] = []
+    for key in _STEM_SCALAR_KEYS:
+        display  = _FEATURE_DISPLAY[key]
+        unit     = _FEATURE_UNITS[key]
+        fmt      = _FEATURE_FMT.get(key, ".4f")
+        mix_v    = chunk_values.get(key, 0.0)
+        voc_v    = vocal_feats.get(key, 0.0)
+        inst_v   = inst_feats.get(key, 0.0)
+        mix_rows.append((
+            display,
+            unit,
+            format(mix_v,  fmt),
+            format(voc_v,  fmt),
+            format(inst_v, fmt),
+        ))
+
+    hdr1 = ("Feature", "Unit", "Mix", "Vocal", "Instrumental")
+    widths1 = [
+        max(len(hdr1[i]), max(len(r[i]) for r in mix_rows))
+        for i in range(len(hdr1))
+    ]
+
+    def _row1(*cells):
+        return (
+            f"| {cells[0]:<{widths1[0]}} "
+            f"| {cells[1]:<{widths1[1]}} "
+            f"| {cells[2]:>{widths1[2]}} "
+            f"| {cells[3]:>{widths1[3]}} "
+            f"| {cells[4]:>{widths1[4]}} |"
+        )
+
+    sep1 = (
+        f"| {'-'*widths1[0]} "
+        f"| {'-'*widths1[1]} "
+        f"| {'-'*widths1[2]:>{widths1[2]}} "
+        f"| {'-'*widths1[3]:>{widths1[3]}} "
+        f"| {'-'*widths1[4]:>{widths1[4]}} |"
+    )
+
+    lines: list[str] = [
+        "## Stem Analysis",
+        "",
+        "> Raw values only — no scoring, no thresholds, no deltas.",
+        "> Stem data bypasses the consistency scorer entirely.",
+        "> The Consistency Score and Flagged Deviations above are unaffected by this section.",
+        "",
+        "### Mix-Level Features by Stem",
+        "",
+        _row1(*hdr1),
+        sep1,
+    ]
+    for r in mix_rows:
+        lines.append(_row1(*r))
+    lines.append("")
+
+    # ------------------------------------------------------------------
+    # Sub-table 2: Vocal-specific metrics (Vocal stem only)
+    # ------------------------------------------------------------------
+    vocal_rows: list[tuple] = []
+    for key in _STEM_METRIC_ORDER:
+        display = _STEM_METRIC_DISPLAY[key]
+        unit    = _STEM_METRIC_UNITS[key]
+        fmt     = _STEM_METRIC_FMT[key]
+        val     = vocal_spec.get(key, 0.0)
+        # Guard against inf/-inf (VAR degenerate cases — silent stem)
+        if val == float("inf"):
+            val_str = "+inf"
+        elif val == float("-inf"):
+            val_str = "-inf"
+        else:
+            val_str = format(val, fmt)
+        vocal_rows.append((display, unit, val_str))
+
+    hdr2 = ("Metric", "Unit", "Vocal")
+    widths2 = [
+        max(len(hdr2[i]), max(len(r[i]) for r in vocal_rows))
+        for i in range(len(hdr2))
+    ]
+
+    def _row2(*cells):
+        return (
+            f"| {cells[0]:<{widths2[0]}} "
+            f"| {cells[1]:<{widths2[1]}} "
+            f"| {cells[2]:>{widths2[2]}} |"
+        )
+
+    sep2 = (
+        f"| {'-'*widths2[0]} "
+        f"| {'-'*widths2[1]} "
+        f"| {'-'*widths2[2]:>{widths2[2]}} |"
+    )
+
+    lines += [
+        "### Vocal-Specific Metrics",
+        "",
+        _row2(*hdr2),
+        sep2,
+    ]
+    for r in vocal_rows:
+        lines.append(_row2(*r))
+
+    lines += [
+        "",
+        (
+            "*Interpretation guide — "
+            "HNR: higher = cleaner vocal (less noise/bleed); "
+            "VAR: positive = vocal louder than instrumental in 1k–4kHz presence band; "
+            "Pitch Confidence: masked to voiced frames only (Arabic consonants excluded); "
+            "Pitch Stability: lower variance = more consistent pitch; "
+            "Spectral Flatness: near 0 = tonal/harmonic, near 1 = noise-like/breathy.*"
+        ),
+        "",
+    ]
+
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
 
-def generate_report(chunk_name: str, analysis: dict, score: dict) -> str:
+def generate_report(
+    chunk_name: str,
+    analysis: dict,
+    score: dict,
+    stem_data: dict = None,
+) -> str:
     """
     Generate a full Markdown QA report for one chunk.
 
@@ -553,23 +770,35 @@ def generate_report(chunk_name: str, analysis: dict, score: dict) -> str:
         chunk_name: Display name for the chunk (typically os.path.basename of path).
         analysis:   Dict returned by profiler.analyze_chunk().
         score:      Dict returned by scorer.score_chunk().
+        stem_data:  Optional dict assembled by main.run_single() when --stems is active.
+                    Keys: vocal_features, inst_features, vocal_specific.
+                    If present, a '## Stem Analysis' section is inserted immediately
+                    before the LLM Summary block. If None, report is identical to the
+                    pre-stems behaviour — no stem section, no other changes.
 
     Returns:
         str — complete Markdown report, ready to print or write to file.
-              All five sections are always present.
+              Standard sections are always present. Stem Analysis section is
+              conditional on stem_data being supplied.
     """
-    return "\n".join(
-        [
-            _section_header(chunk_name, score["consistency_score"]),
-            _section_feature_table(analysis, score),
-            _section_mfcc_detail(analysis),
-            _section_flagged_deviations(analysis, score),
-            _section_llm_summary(chunk_name, analysis, score),
-        ]
-    )
+    sections = [
+        _section_header(chunk_name, score["consistency_score"]),
+        _section_feature_table(analysis, score),
+        _section_mfcc_detail(analysis),
+        _section_flagged_deviations(analysis, score),
+    ]
+    if stem_data is not None:
+        sections.append(_section_stem_table(stem_data, analysis["chunk_values"]))
+    sections.append(_section_llm_summary(chunk_name, analysis, score))
+    return "\n".join(sections)
 
 
-def generate_prompt_debug_report(chunk_name: str, analysis: dict, score: dict) -> str:
+def generate_prompt_debug_report(
+    chunk_name: str,
+    analysis: dict,
+    score: dict,
+    stem_data: dict = None,
+) -> str:
     """
     Phase 5 — Prompt debug report.
 
@@ -581,22 +810,28 @@ def generate_prompt_debug_report(chunk_name: str, analysis: dict, score: dict) -
         chunk_name: Display name for the chunk (typically os.path.basename).
         analysis:   Dict returned by profiler.analyze_chunk().
         score:      Dict returned by scorer.score_chunk().
+        stem_data:  Optional dict assembled by main.run_single() when --stems is active.
+                    Keys: vocal_features, inst_features, vocal_specific.
+                    If present, a '## Stem Analysis' section is inserted immediately
+                    before the LLM Summary block. If None, report is identical to the
+                    pre-stems behaviour.
 
     Returns:
-        str — complete Markdown report with all five standard sections
+        str — complete Markdown report with all standard sections
               plus the Suno Prompt Implications section at the end.
-              All sections are always present.
+              Stem Analysis section is conditional on stem_data being supplied.
     """
-    return "\n".join(
-        [
-            _section_header(chunk_name, score["consistency_score"]),
-            _section_feature_table(analysis, score),
-            _section_mfcc_detail(analysis),
-            _section_flagged_deviations(analysis, score),
-            _section_llm_summary(chunk_name, analysis, score),
-            _section_prompt_implications(analysis, score),
-        ]
-    )
+    sections = [
+        _section_header(chunk_name, score["consistency_score"]),
+        _section_feature_table(analysis, score),
+        _section_mfcc_detail(analysis),
+        _section_flagged_deviations(analysis, score),
+    ]
+    if stem_data is not None:
+        sections.append(_section_stem_table(stem_data, analysis["chunk_values"]))
+    sections.append(_section_llm_summary(chunk_name, analysis, score))
+    sections.append(_section_prompt_implications(analysis, score))
+    return "\n".join(sections)
 
 
 # ---------------------------------------------------------------------------

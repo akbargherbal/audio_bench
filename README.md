@@ -9,10 +9,16 @@ Classical Arabic Poem → Suno AI → Audacity pipeline. Catches deviant chunks 
 ## Installation
 
 ```bash
+# Core dependencies (required for all modes)
 pip install librosa pyloudnorm soundfile numpy scipy
+
+# Stem separation (required for --stems only)
+pip install "audio-separator[cpu]" praat-parselmouth
 ```
 
 Python 3.9+ required. No GUI. CLI only.
+
+`audio-separator` downloads the BS-Roformer model on first `--stems` run (~500 MB). This is a one-time download cached locally by the library.
 
 ---
 
@@ -33,6 +39,9 @@ python main.py --ceiling data/audio/elisa_maktooba_leek.mp3 --chunk data/audio/C
 
 # Style gap analysis — neutral mix-character briefing
 python main.py --style-compare data/audio/elisa_maktooba_leek.mp3 --chunk data/audio/CHUNK_B.mp3
+
+# Stem separation + vocal metrics (single-chunk only)
+python main.py --reference data/audio/REF_01.mp3 --chunk data/audio/CHUNK_B.mp3 --stems
 ```
 
 ---
@@ -40,6 +49,8 @@ python main.py --style-compare data/audio/elisa_maktooba_leek.mp3 --chunk data/a
 ## CLI Modes
 
 `--reference`, `--ceiling`, and `--style-compare` are mutually exclusive. Use exactly one per invocation.
+
+`--stems` is a single-chunk modifier. It cannot be combined with `--batch`, `--ceiling`, or `--style-compare` — attempting to do so exits immediately with an error.
 
 ---
 
@@ -49,17 +60,22 @@ python main.py --style-compare data/audio/elisa_maktooba_leek.mp3 --chunk data/a
 python main.py --reference <ref.mp3|wav> --chunk <chunk.mp3|wav>
 python main.py --reference <ref.mp3|wav> --chunk <chunk.mp3|wav> --output reports/chunk_01.md
 python main.py --reference <ref.mp3|wav> --chunk <chunk.mp3|wav> --json
+python main.py --reference <ref.mp3|wav> --chunk <chunk.mp3|wav> --stems
 ```
 
 Compares one chunk against the reference. Outputs a Markdown (default) or JSON report to stdout or a file.
 
-**Report sections (all always present):**
+**Report sections (always present):**
 
 1. Header — chunk name, Consistency Score (0–100), verdict
 2. Feature comparison table — Reference / Chunk / Delta / Flag for all 12 features
 3. MFCC detail — 13-coefficient breakdown with role labels
 4. Flagged deviations — plain-English label per flagged feature
 5. Diagnostic summary — paste-ready LLM block (FR-6)
+
+**`--stems` optional section (inserted before Diagnostic Summary when flag is active):**
+
+6. Stem Analysis — raw Mix / Vocal / Instrumental values for all 11 scalar features, plus 5 vocal-specific metrics (see below). No scoring, no thresholds, no deltas. Does **not** affect the Consistency Score.
 
 **Verdict bands:**
 
@@ -182,7 +198,7 @@ TRACK_QA/
 ├── README.md
 └── src/
     ├── config.py               # Phases 3/6 — QA thresholds, weights, ceiling thresholds
-    ├── extractor.py            # Phase 1 — feature extraction (12 features)
+    ├── extractor.py            # Phase 1 — feature extraction (12 mix features + 5 stem metrics)
     ├── main.py                 # Phase 3+ — CLI entry point, all mode dispatch
     ├── profiler.py             # Phase 2 — reference profile + chunk delta
     ├── reference_profile.json  # auto-created on first --reference run, reused as cache
@@ -219,22 +235,39 @@ All 12 features are extracted from every file by `extractor.py`. Modes differ in
 
 Band energies (low-mid, presence, high shelf) are expressed as a **fraction of total spectral power** — length-independent and directly comparable across chunks of different duration.
 
+### Stem-Specific Metrics (`--stems` only)
+
+Extracted from the UVR5-separated vocal and instrumental stems. These metrics never enter the consistency scorer — they are reported as raw values only.
+
+| Metric | Unit | Notes |
+|---|---|---|
+| HNR (Harmonics-to-Noise Ratio) | dB | Via Praat/parselmouth. Higher = cleaner vocal, less noise or stem bleed. |
+| VAR (Vocal-to-Accompaniment Ratio) | dB | Absolute power ratio in 1k–4kHz presence band. Positive = vocal louder than instrumental. |
+| Pitch Confidence (voiced frames) | — | Mean voiced probability, masked to voiced frames only. Arabic consonants (ع, ح, خ, ق) are unvoiced and correctly excluded. |
+| Pitch Stability (F0 variance) | Hz² | Variance of F0 across voiced frames. Lower = more consistent pitch. |
+| Spectral Flatness (vocal stem) | — | Near 0 = tonal/harmonic; near 1 = noise-like/breathy. |
+
 **Feature usage by mode:**
 
-| Feature          | QA / Batch | Prompt Debug | Ceiling | Style Gap |
-|------------------|:----------:|:------------:|:-------:|:---------:|
-| LUFS             | ✓          | ✓            | ✓       | ✓         |
-| RMS energy       | ✓          | ✓            | ✓       | ✓         |
-| Dynamic range    | ✓          | ✓            | ✓       | ✓         |
-| Spectral centroid| ✓          | ✓            | ✓       | ✓         |
-| Spectral rolloff | ✓          | ✓            | ✓       | ✓         |
-| Low-mid energy   | ✓          | ✓            | ✓       | ✓         |
-| Presence band    | ✓          | ✓            | ✓       | ✓         |
-| High shelf       | ✓          | ✓            | —       | ✓         |
-| Stereo width     | ✓          | ✓            | —       | ✓         |
-| MFCC distance    | ✓          | ✓            | ✓       | ✓         |
-| Tempo            | scored=0   | scored=0     | —       | —         |
-| Zero crossing rate | ✓        | ✓            | ✓       | —         |
+| Feature          | QA / Batch | Prompt Debug | Ceiling | Style Gap | `--stems` |
+|------------------|:----------:|:------------:|:-------:|:---------:|:---------:|
+| LUFS             | ✓          | ✓            | ✓       | ✓         | Mix+Voc+Inst |
+| RMS energy       | ✓          | ✓            | ✓       | ✓         | Mix+Voc+Inst |
+| Dynamic range    | ✓          | ✓            | ✓       | ✓         | Mix+Voc+Inst |
+| Spectral centroid| ✓          | ✓            | ✓       | ✓         | Mix+Voc+Inst |
+| Spectral rolloff | ✓          | ✓            | ✓       | ✓         | Mix+Voc+Inst |
+| Low-mid energy   | ✓          | ✓            | ✓       | ✓         | Mix+Voc+Inst |
+| Presence band    | ✓          | ✓            | ✓       | ✓         | Mix+Voc+Inst |
+| High shelf       | ✓          | ✓            | —       | ✓         | Mix+Voc+Inst |
+| Stereo width     | ✓          | ✓            | —       | ✓         | Mix+Voc+Inst |
+| MFCC distance    | ✓          | ✓            | ✓       | ✓         | —            |
+| Tempo            | scored=0   | scored=0     | —       | —         | Mix+Voc+Inst |
+| Zero crossing rate | ✓        | ✓            | ✓       | —         | Mix+Voc+Inst |
+| HNR              | —          | —            | —       | —         | Vocal only   |
+| VAR (dB)         | —          | —            | —       | —         | Vocal only   |
+| Pitch Confidence | —          | —            | —       | —         | Vocal only   |
+| Pitch Stability  | —          | —            | —       | —         | Vocal only   |
+| Spectral Flatness| —          | —            | —       | —         | Vocal only   |
 
 ---
 
@@ -318,7 +351,9 @@ Part C is a persistent outlier (+1061.7 Hz centroid, +2453.0 Hz rolloff). Decisi
 
 **MP3 acceptable.** Suno compression artefacts are uniform across chunks from the same project and will not skew comparative deltas.
 
-**No stem separation.** Vocal isolation (Demucs etc.) is out of scope. All features reflect the full mix, including accompaniment.
+**`--stems` is single-chunk and CPU-only.** Stem separation via BS-Roformer (`audio-separator`) runs on CPU by default. Separation of a typical 3–5 minute chunk takes 1–5 minutes depending on hardware. GPU support requires a different `audio-separator` install target. `--stems` cannot be combined with `--batch`, `--ceiling`, or `--style-compare`. The first run downloads the BS-Roformer model (~500 MB).
+
+**Stem metrics are advisory only.** HNR, VAR, and pitch metrics are extracted from UVR5-separated stems. If BS-Roformer produces bleed (dense low-mid content can cause this), HNR readings may be artefacts. Always cross-reference HNR against VAR: if VAR is negative at the same moment HNR drops, the HNR reading is likely a bleed artefact. None of the stem metrics affect the Consistency Score.
 
 **Ceiling and Style Gap are single-chunk only.** Both `--ceiling` and `--style-compare` with `--batch` error explicitly.
 

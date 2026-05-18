@@ -9,6 +9,7 @@ Usage (single):
     python main.py --reference <ref.mp3>  --chunk <chunk.mp3>
     python main.py --reference <ref.mp3>  --chunk <chunk.mp3>  --output report.md
     python main.py --reference <ref.mp3>  --chunk <chunk.mp3>  --json
+    python main.py --reference <ref.mp3>  --chunk <chunk.mp3>  --stems
 
 Usage (batch):
     python main.py --reference <ref.mp3>  --batch <folder/>
@@ -106,8 +107,46 @@ def _load_or_build_reference(reference_path: str) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Core pipeline — single chunk  (unchanged from Phase 3)
+# Core pipeline — single chunk
 # ---------------------------------------------------------------------------
+
+
+def _separate_stems(chunk_path: str) -> tuple[str, str]:
+    """
+    Phase 2 — Task 2.1: UVR5 Hook
+    Separates the chunk into Vocal and Instrumental stems using BS-Roformer.
+    Returns: (vocal_path, inst_path)
+    """
+    from audio_separator.separator import Separator
+
+    print(
+        f"  [STEMS] Initialising UVR5 (BS-Roformer) for {os.path.basename(chunk_path)}...",
+        file=sys.stderr,
+    )
+    output_dir = os.path.dirname(os.path.abspath(chunk_path))
+
+    # Initialize separator
+    separator = Separator(output_dir=output_dir, output_format="WAV")
+    separator.load_model(model_filename="model_bs_roformer_ep_317_sdr_12.9755.ckpt")
+
+    print(f"  [STEMS] Separating audio (this may take a while)...", file=sys.stderr)
+    output_files = separator.separate(chunk_path)
+
+    inst_path = None
+    vocal_path = None
+    for f in output_files:
+        if "Vocals" in f or "vocals" in f:
+            vocal_path = os.path.join(output_dir, f)
+        elif "Instrumental" in f or "instrumental" in f:
+            inst_path = os.path.join(output_dir, f)
+
+    if not vocal_path or not inst_path:
+        # Fallback if naming convention changes
+        inst_path = os.path.join(output_dir, output_files[0])
+        vocal_path = os.path.join(output_dir, output_files[1])
+
+    print(f"  [STEMS] Separation complete.", file=sys.stderr)
+    return vocal_path, inst_path
 
 
 def run_single(
@@ -115,6 +154,7 @@ def run_single(
     chunk_path: str,
     output_json: bool = False,
     prompt_debug: bool = False,
+    use_stems: bool = False,
 ) -> tuple[str, float]:
     """
     Full pipeline: profiler → scorer → reporter for one chunk.
@@ -125,6 +165,7 @@ def run_single(
         output_json:    If True, return a JSON string instead of Markdown.
         prompt_debug:   If True, use generate_prompt_debug_report() which
                         appends the 'Suno Prompt Implications' section.
+        use_stems:      If True, separate chunk into stems and append raw metrics.
 
     Returns:
         (report_str, consistency_score) — score is returned so main() can
@@ -140,24 +181,45 @@ def run_single(
     score = score_chunk(analysis, THRESHOLDS, WEIGHTS)
     chunk_name = os.path.basename(chunk_path)
 
+    stem_data = None
+    if use_stems:
+        from extractor import extract_features, extract_vocal_stem_features
+
+        vocal_path, inst_path = _separate_stems(chunk_path)
+
+        print(f"  [STEMS] Extracting mix-level features from stems...", file=sys.stderr)
+        vocal_feats = extract_features(vocal_path)
+        inst_feats = extract_features(inst_path)
+
+        print(f"  [STEMS] Extracting vocal-specific metrics...", file=sys.stderr)
+        vocal_specific = extract_vocal_stem_features(vocal_path, inst_path)
+
+        stem_data = {
+            "vocal_features": vocal_feats,
+            "inst_features": inst_feats,
+            "vocal_specific": vocal_specific,
+        }
+
     if output_json:
-        report_str = json.dumps(
-            {
-                "chunk_name": chunk_name,
-                "analysis": {
-                    "chunk_path": analysis["chunk_path"],
-                    "chunk_values": analysis["chunk_values"],
-                    "reference_values": analysis["reference_values"],
-                    "deltas": analysis["deltas"],
-                },
-                "score": score,
+        report_dict = {
+            "chunk_name": chunk_name,
+            "analysis": {
+                "chunk_path": analysis["chunk_path"],
+                "chunk_values": analysis["chunk_values"],
+                "reference_values": analysis["reference_values"],
+                "deltas": analysis["deltas"],
             },
-            indent=2,
-        )
+            "score": score,
+        }
+        if stem_data:
+            report_dict["stem_data"] = stem_data
+        report_str = json.dumps(report_dict, indent=2)
     elif prompt_debug:
-        report_str = generate_prompt_debug_report(chunk_name, analysis, score)
+        report_str = generate_prompt_debug_report(
+            chunk_name, analysis, score, stem_data=stem_data
+        )
     else:
-        report_str = generate_report(chunk_name, analysis, score)
+        report_str = generate_report(chunk_name, analysis, score, stem_data=stem_data)
 
     return report_str, score["consistency_score"]
 
@@ -219,8 +281,6 @@ def run_ceiling(
     ceiling_mfccs = np.array(ceiling_feats["mfcc"])
     chunk_mfccs = np.array(chunk_feats["mfcc"])
     mfcc_distance = float(cosine(chunk_mfccs[1:], ceiling_mfccs[1:]))
-
-    # Compute deltas and red flags for included features only
 
     # Compute deltas and red flags for included features only
     deltas: dict[str, float] = {}
@@ -302,8 +362,15 @@ def run_style_compare(
     from extractor import extract_features
 
     _STYLE_COMPARE_INCLUDED = {
-        "lufs", "rms", "dynamic_range", "spectral_centroid", "spectral_rolloff",
-        "low_mid_energy", "presence_band", "high_shelf", "stereo_width",
+        "lufs",
+        "rms",
+        "dynamic_range",
+        "spectral_centroid",
+        "spectral_rolloff",
+        "low_mid_energy",
+        "presence_band",
+        "high_shelf",
+        "stereo_width",
     }  # mfcc_distance handled separately; tempo and zcr excluded
 
     for path, label in [(style_path, "Style reference"), (chunk_path, "Chunk")]:
@@ -338,6 +405,7 @@ def run_style_compare(
     deltas["mfcc_distance"] = round(mfcc_distance, 6)
 
     if output_json:
+
         def _strip_mfcc(d: dict) -> dict:
             return {k: v for k, v in d.items() if k != "mfcc"}
 
@@ -706,6 +774,11 @@ Examples:
         action="store_true",
         help="Output raw JSON instead of Markdown.",
     )
+    parser.add_argument(
+        "--stems",
+        action="store_true",
+        help="[Single mode only] Separate chunk into stems and append raw stem metrics to report.",
+    )
 
     args = parser.parse_args()
 
@@ -729,6 +802,26 @@ Examples:
             "  Ceiling analysis     : --ceiling <commercial_track>\n"
             "  Style gap briefing   : --style-compare <commercial_track>"
         )
+
+    # -- Validate --stems mutual exclusion (Phase 2) -------------------------
+    if args.stems:
+        if args.batch:
+            print(
+                "  [MAIN] ERROR: --stems cannot be used with --batch.", file=sys.stderr
+            )
+            sys.exit(1)
+        if has_ceiling:
+            print(
+                "  [MAIN] ERROR: --stems cannot be used with --ceiling.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        if has_style_compare:
+            print(
+                "  [MAIN] ERROR: --stems cannot be used with --style-compare.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
 
     # -- Ceiling mode (Phase 6) ----------------------------------------------
     if has_ceiling:
@@ -844,6 +937,7 @@ Examples:
         chunk_path=args.chunk,
         output_json=args.json,
         prompt_debug=is_prompt_debug,
+        use_stems=args.stems,
     )
 
     # Phase 3 stop condition (plan Section 3, Task 3.3)
