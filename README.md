@@ -125,7 +125,7 @@ python main.py --reference <ref.mp3|wav> --chunk <new_gen.mp3> --mode prompt-deb
 
 Identical to Single Chunk QA with one additional section appended: **Suno Prompt Implications**. Maps each flagged feature to a likely Suno prompt cause.
 
-**Implication map v1.1 covers 8 features** with directional entries (12 total entries). Features not in the map (`rms`, `dynamic_range`, `zcr`) render a fallback note if they are the only flags.
+**Implication map v1.1 covers 8 features** with directional entries (12 total entries). Features not in the map (`rms`, `crest_factor_db`, `high_shelf`, `zcr`) render a fallback note if they are the only flags.
 
 **Example implications:**
 
@@ -147,7 +147,7 @@ python main.py --ceiling <commercial_track.mp3> --chunk <chunk.mp3> --json
 
 **Purpose:** Production hygiene red-flag check. Detects gross production failures only — not genre differences.
 
-**What it checks (9 of 12 features):** LUFS, RMS energy, Dynamic range, Spectral centroid, Spectral rolloff, Low-mid energy, Presence band, Zero crossing rate, MFCC distance.
+**What it checks (9 of 12 features):** LUFS, RMS energy, Crest factor, Spectral centroid, Spectral rolloff, Low-mid energy, Presence band, Zero crossing rate, MFCC distance.
 
 **Explicitly excluded (genre-specific — never compared):** High shelf (8kHz+), Stereo width, Tempo.
 
@@ -169,7 +169,7 @@ python main.py --style-compare <commercial_track.mp3> --chunk <chunk.mp3> --json
 
 **Purpose:** Neutral mix-character briefing. Compares 10 mix-relevant features between a Suno chunk and a commercial reference track. No score, no thresholds, no pass/fail. Output is a paste-ready Markdown block for LLM-assisted mix-character reasoning.
 
-**What it compares (10 of 12 features):** LUFS, RMS energy, Dynamic range, Spectral centroid, Spectral rolloff, Low-mid energy, Presence band, High shelf, Stereo width, MFCC distance.
+**What it compares (10 of 12 features):** LUFS, RMS energy, Crest factor, Spectral centroid, Spectral rolloff, Low-mid energy, Presence band, High shelf, Stereo width, MFCC distance.
 
 **Explicitly excluded:**
 
@@ -222,7 +222,7 @@ All 12 features are extracted from every file by `extractor.py`. Modes differ in
 |-----------------------------|-------------|--------------|-----------------------------------------------------------|
 | LUFS (integrated loudness)  | LUFS        | `pyloudnorm` | Perceived loudness — must be negative                     |
 | RMS energy                  | —           | `librosa`    | Overall energy level                                      |
-| Dynamic range (crest factor)| dB          | `librosa`    | 20·log10(peak/RMS)                                        |
+| Crest factor                | dB          | `librosa`    | 20·log10(peak/RMS)                                        |
 | Spectral centroid           | Hz          | `librosa`    | Brightness — tonal weight                                 |
 | Spectral rolloff            | Hz          | `librosa`    | High-frequency content rolloff                            |
 | Low-mid energy (200–500 Hz) | frac [0,1]  | `librosa`    | Muddiness indicator — fraction of total spectral power    |
@@ -300,7 +300,7 @@ Current values in `config.py` — v1 heuristics calibrated through Sessions 3–
 |-------------------|-----------|--------|------------------------------------------------------------|
 | `lufs`            | ±3.0 LU   | 1.5    | Widened from ±2.0 after Session 3 real-chunk run           |
 | `rms`             | ±0.05     | 0.8    |                                                            |
-| `dynamic_range`   | ±3.0 dB   | 1.0    |                                                            |
+| `crest_factor_db` | ±3.0 dB   | 1.0    |                                                            |
 | `spectral_centroid` | ±500 Hz | 1.0    |                                                            |
 | `spectral_rolloff`| ±1000 Hz  | 0.8    |                                                            |
 | `low_mid_energy`  | ±0.10 frac| 1.0    |                                                            |
@@ -308,7 +308,7 @@ Current values in `config.py` — v1 heuristics calibrated through Sessions 3–
 | `high_shelf`      | ±0.05 frac| 0.7    | ⚠ Baseline is ~0.018; may need tightening to ±0.02         |
 | `stereo_width`    | ±0.10     | 1.0    | Recalibrated Session 9 (S/M RMS ratio scale; old ±0.15 was abs(L-R)) |
 | `tempo`           | 999.0     | 0.0    | Disabled — unreliable on Arabic poetry                     |
-| `mfcc_distance`   | ±7.0      | 1.5    | Widened from ±5.0 after Session 3 real-chunk run           |
+| `mfcc_distance`   | ±0.15     | 1.5    | BUG-TQ-03 fix: previous value ±7.0 was calibrated against mean-absolute-delta and was unreachable by cosine distance (max 2.0). Current value is a heuristic starting point — recalibrate after first post-fix batch run. |
 | `zcr`             | ±0.05     | 0.5    |                                                            |
 
 To recalibrate: edit `THRESHOLDS` and `WEIGHTS` in `config.py` directly. No other mechanism exists by design.
@@ -343,7 +343,7 @@ Part C is a persistent outlier (+1061.7 Hz centroid, +2453.0 Hz rolloff). Decisi
 
 **Tempo disabled.** `librosa.beat.tempo()` produces implausible estimates on non-rhythmic Arabic poetry. Weight is 0.0 and threshold is 999.0. Tempo is extracted and displayed but does not affect the Consistency Score and is excluded from Ceiling and Style Gap modes entirely.
 
-**Prompt implication map v1.1 covers 8 features.** `rms`, `dynamic_range`, and `zcr` have no map entry — they do not translate cleanly to Suno prompt language. A fallback note renders if these are the only flagged features.
+**Prompt implication map v1.1 covers 8 features.** `rms`, `crest_factor_db`, `high_shelf`, and `zcr` have no map entry — they do not translate cleanly to Suno prompt language. A fallback note renders if these are the only flagged features.
 
 **Mono chunks.** If a chunk is mono and the reference is stereo, `stereo_width` delta is `0.0 − reference_width` and will be negative. This is logged with an INFO note. It does not crash.
 
@@ -362,8 +362,6 @@ Part C is a persistent outlier (+1061.7 Hz centroid, +2453.0 Hz rolloff). Decisi
 **Commercial track genre mismatch.** Both ceiling and style gap modes are designed for this. Genre-specific features are excluded from ceiling analysis. Style gap makes no exclusions for genre — it is explicitly framed as mix-character context, not a style target.
 
 **`reports/` is gitignored.** Keep manual copies of significant batch runs if needed.
-
-**`scorer.py` stale docstring.** "mean absolute MFCC delta" should read "cosine distance". Cosmetic only; no functional impact.
 
 ---
 
