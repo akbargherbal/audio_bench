@@ -32,12 +32,13 @@ a key is present in one but missing from the other.
 #   tempo ±10 BPM       — Arabic poetry meter is irregular. 112.5 BPM from
 #                        reference is almost certainly an artefact. Weight is
 #                        low (0.5) but threshold may need widening. Monitor.
-#   mfcc_distance ±0.15 — BUG-TQ-03 fix: previous value ±7.0 (and before
+#   mfcc_distance ±0.10 — BUG-TQ-03 fix: previous value ±7.0 (and before
 #                        that ±5.0) were calibrated against mean-absolute-delta
 #                        and were unreachable after the switch to cosine distance
-#                        (range [0,2]). New value ±0.15 is a heuristic starting
-#                        point. Recalibrate after first batch run: if same-voice
-#                        chunks consistently score < 0.05, tighten to ±0.10.
+#                        (range [0,2]). Interim value ±0.15 set in Session 17.
+#                        Calibrated to ±0.10 in Session 18 after first post-fix
+#                        batch run (7 same-voice chunks; max observed = 0.0287,
+#                        all < 0.05). Gives 3.5× headroom above worst observed.
 #   stereo_width ±0.10  — Recalibrated Session 9 against post-fix batch (6 chunks).
 #                         Metric: Side/Mid RMS ratio. Reference = 0.408783.
 #                         Batch max delta = 0.064 (Part A). Threshold set to ±0.10
@@ -66,14 +67,16 @@ THRESHOLDS: dict[str, float] = {
                            #               batch max delta = 0.064 (Part A); headroom retained
                            #               old value ±0.15 was calibrated against obsolete abs(L-R)
     "tempo": 999.0,  # Disabled    — pacing (unreliable on poetry)
-    "mfcc_distance": 0.15,  # ±0.15       — timbre fingerprint (BUG-TQ-03 fix)
+    "mfcc_distance": 0.10,  # ±0.10       — timbre fingerprint (BUG-TQ-03 fix)
                              # Previous value ±7.0 was calibrated against
                              # mean-absolute-delta and was NEVER reachable after
                              # the switch to cosine distance (range [0, 2]).
                              # The feature was silently non-functional in the scorer
-                             # for all prior sessions. Recalibrate from a real batch
-                             # run: if same-voice chunks consistently score < 0.05
-                             # cosine distance, tighten to 0.10.
+                             # for all prior sessions.
+                             # Session 18 calibration (7 same-voice chunks):
+                             #   max observed = 0.0287 (Part C); all < 0.05.
+                             # Tightened from 0.15 → 0.10 per handover rule.
+                             # Gives 3.5× headroom above worst observed value.
     "zcr": 0.05,  # ±0.05       — noise/distortion indicator
 }
 

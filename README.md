@@ -308,7 +308,7 @@ Current values in `config.py` — v1 heuristics calibrated through Sessions 3–
 | `high_shelf`      | ±0.05 frac| 0.7    | ⚠ Baseline is ~0.018; may need tightening to ±0.02         |
 | `stereo_width`    | ±0.10     | 1.0    | Recalibrated Session 9 (S/M RMS ratio scale; old ±0.15 was abs(L-R)) |
 | `tempo`           | 999.0     | 0.0    | Disabled — unreliable on Arabic poetry                     |
-| `mfcc_distance`   | ±0.15     | 1.5    | BUG-TQ-03 fix: previous value ±7.0 was calibrated against mean-absolute-delta and was unreachable by cosine distance (max 2.0). Current value is a heuristic starting point — recalibrate after first post-fix batch run. |
+| `mfcc_distance`   | ±0.10     | 1.5    | Calibrated Session 18: 7 same-voice chunks all scored < 0.05 (max 0.0287, Part C). Tightened from interim ±0.15. Gives 3.5× headroom above worst observed. |
 | `zcr`             | ±0.05     | 0.5    |                                                            |
 
 To recalibrate: edit `THRESHOLDS` and `WEIGHTS` in `config.py` directly. No other mechanism exists by design.
@@ -326,16 +326,16 @@ When a `presence_band` flag fires, cross-reference it with `low_mid_energy` befo
 
 Source: Expert B (Mastering), Session 8 consultation.
 
-### Current Batch Scores (post-Session 9, unchanged)
+### Current Batch Scores (post-Session 18, post-fix)
 
 | Rank | Chunk                  | Score    | Flagged                             |
 |:----:|:-----------------------|---------:|:------------------------------------|
-| 1    | FULL_qais_part_C       | 79.2/100 | Spectral centroid, Spectral rolloff |
-| 2    | FULL_qais_part_A_02    | 98.2/100 | Spectral centroid, Spectral rolloff |
+| 1    | FULL_qais_part_C       | 79.3/100 | Spectral centroid, Spectral rolloff |
+| 2    | FULL_qais_part_A_02    | 98.3/100 | Spectral centroid, Spectral rolloff |
 | 3    | FULL_qais_part_F (Edit)| 99.7/100 | Spectral rolloff                    |
 | 4–6  | Parts B, E, G          | 100.0/100| —                                   |
 
-Part C is a persistent outlier (+1061.7 Hz centroid, +2453.0 Hz rolloff). Decision pending.
+Part C is a persistent outlier (+1061.7 Hz centroid, +2453.0 Hz rolloff, MFCC distance 0.0287). Decision pending — timbre is within family; deviation is spectral/arrangement only.
 
 ---
 
