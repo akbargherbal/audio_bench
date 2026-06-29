@@ -102,7 +102,7 @@ Processes every `.mp3` / `.wav` file in the folder. Writes:
 - `reports/<chunk_stem>_report.md` — one report per chunk
 - `reports/summary.md` — ranked table, worst chunk first
 
-Natively prints a terminal-friendly **🏆 TOP 5 MOST SIMILAR CHUNKS (BEST FIRST)** console summary upon completion.
+Natively prints a terminal-friendly **🏆 TOP/BOTTOM 5 PERFORMANCE COMPARISON** console summary upon completion, allowing you to easily contrast what went well against what went wrong.
 
 The reference profile is extracted once and cached to `reference_profile.json`. Subsequent runs against the same reference skip extraction.
 
