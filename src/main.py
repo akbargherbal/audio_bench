@@ -519,6 +519,25 @@ def _write_summary(results: list[dict]) -> None:
 
     print(f"  [BATCH] Summary written to: {summary_path}", file=sys.stderr)
 
+    # --- Native Top 5 Terminal Printout ---
+    if successes:
+        # Sort successes descending for "best first" representation
+        top_similar = sorted(successes, key=lambda r: r["score"], reverse=True)[:5]
+        print("\n" + "=" * 64, file=sys.stderr)
+        print("  🏆 TOP 5 MOST SIMILAR CHUNKS (BEST FIRST)", file=sys.stderr)
+        print("=" * 64, file=sys.stderr)
+        for i, r in enumerate(top_similar, start=1):
+            flagged_display = (
+                ", ".join(_SUMMARY_NAMES.get(f, f) for f in r["flagged"])
+                if r["flagged"]
+                else "None"
+            )
+            print(
+                f"  {i}. {r['chunk_name']:<30} | Score: {int(r['score'])}/100 | Flags: {flagged_display}",
+                file=sys.stderr,
+            )
+        print("=" * 64 + "\n", file=sys.stderr)
+
 
 def run_batch(
     reference_path: str, batch_folder: str, output_json: bool = False

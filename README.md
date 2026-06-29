@@ -80,7 +80,7 @@ Compares one chunk against the reference. Outputs a Markdown (default) or JSON r
 **Verdict bands:**
 
 | Score  | Verdict                                              |
-|--------|------------------------------------------------------|
+| ------ | ---------------------------------------------------- |
 | 85–100 | PASS — within reference family                       |
 | 65–84  | REVIEW — minor deviations present                    |
 | 50–64  | CAUTION — notable deviations, consider re-generation |
@@ -101,6 +101,8 @@ Processes every `.mp3` / `.wav` file in the folder. Writes:
 
 - `reports/<chunk_stem>_report.md` — one report per chunk
 - `reports/summary.md` — ranked table, worst chunk first
+
+Natively prints a terminal-friendly **🏆 TOP 5 MOST SIMILAR CHUNKS (BEST FIRST)** console summary upon completion.
 
 The reference profile is extracted once and cached to `reference_profile.json`. Subsequent runs against the same reference skip extraction.
 
@@ -218,20 +220,20 @@ All scripts must be run from `src/`. No file outside this map should be created 
 
 All 12 features are extracted from every file by `extractor.py`. Modes differ in which features they use.
 
-| Feature                     | Unit        | Library      | Notes                                                     |
-|-----------------------------|-------------|--------------|-----------------------------------------------------------|
-| LUFS (integrated loudness)  | LUFS        | `pyloudnorm` | Perceived loudness — must be negative                     |
-| RMS energy                  | —           | `librosa`    | Overall energy level                                      |
-| Crest factor                | dB          | `librosa`    | 20·log10(peak/RMS)                                        |
-| Spectral centroid           | Hz          | `librosa`    | Brightness — tonal weight                                 |
-| Spectral rolloff            | Hz          | `librosa`    | High-frequency content rolloff                            |
-| Low-mid energy (200–500 Hz) | frac [0,1]  | `librosa`    | Muddiness indicator — fraction of total spectral power    |
-| Presence band (1k–4kHz)     | frac [0,1]  | `librosa`    | Vocal clarity / cut-through                               |
-| High shelf (8kHz+)          | frac [0,1]  | `librosa`    | Air / harshness                                           |
-| Stereo width                | —           | `librosa`    | Side/Mid RMS ratio; 0.0 if mono                           |
-| Tempo                       | BPM         | `librosa`    | Unreliable on poetry — disabled in QA scoring             |
-| MFCCs (13 coefficients)     | —           | `librosa`    | Timbre fingerprint; cosine distance on C02–C13 used in scoring |
-| Zero crossing rate          | —           | `librosa`    | Noisiness / distortion indicator                          |
+| Feature                     | Unit       | Library      | Notes                                                          |
+| --------------------------- | ---------- | ------------ | -------------------------------------------------------------- |
+| LUFS (integrated loudness)  | LUFS       | `pyloudnorm` | Perceived loudness — must be negative                          |
+| RMS energy                  | —          | `librosa`    | Overall energy level                                           |
+| Crest factor                | dB         | `librosa`    | 20·log10(peak/RMS)                                             |
+| Spectral centroid           | Hz         | `librosa`    | Brightness — tonal weight                                      |
+| Spectral rolloff            | Hz         | `librosa`    | High-frequency content rolloff                                 |
+| Low-mid energy (200–500 Hz) | frac [0,1] | `librosa`    | Muddiness indicator — fraction of total spectral power         |
+| Presence band (1k–4kHz)     | frac [0,1] | `librosa`    | Vocal clarity / cut-through                                    |
+| High shelf (8kHz+)          | frac [0,1] | `librosa`    | Air / harshness                                                |
+| Stereo width                | —          | `librosa`    | Side/Mid RMS ratio; 0.0 if mono                                |
+| Tempo                       | BPM        | `librosa`    | Unreliable on poetry — disabled in QA scoring                  |
+| MFCCs (13 coefficients)     | —          | `librosa`    | Timbre fingerprint; cosine distance on C02–C13 used in scoring |
+| Zero crossing rate          | —          | `librosa`    | Noisiness / distortion indicator                               |
 
 Band energies (low-mid, presence, high shelf) are expressed as a **fraction of total spectral power** — length-independent and directly comparable across chunks of different duration.
 
@@ -239,35 +241,35 @@ Band energies (low-mid, presence, high shelf) are expressed as a **fraction of t
 
 Extracted from the UVR5-separated vocal and instrumental stems. These metrics never enter the consistency scorer — they are reported as raw values only.
 
-| Metric | Unit | Notes |
-|---|---|---|
-| HNR (Harmonics-to-Noise Ratio) | dB | Via Praat/parselmouth. Higher = cleaner vocal, less noise or stem bleed. |
-| VAR (Vocal-to-Accompaniment Ratio) | dB | Absolute power ratio in 1k–4kHz presence band. Positive = vocal louder than instrumental. |
-| Pitch Confidence (voiced frames) | — | Mean voiced probability, masked to voiced frames only. Arabic consonants (ع, ح, خ, ق) are unvoiced and correctly excluded. |
-| Pitch Stability (F0 variance) | Hz² | Variance of F0 across voiced frames. Lower = more consistent pitch. |
-| Spectral Flatness (vocal stem) | — | Near 0 = tonal/harmonic; near 1 = noise-like/breathy. |
+| Metric                             | Unit | Notes                                                                                                                      |
+| ---------------------------------- | ---- | -------------------------------------------------------------------------------------------------------------------------- |
+| HNR (Harmonics-to-Noise Ratio)     | dB   | Via Praat/parselmouth. Higher = cleaner vocal, less noise or stem bleed.                                                   |
+| VAR (Vocal-to-Accompaniment Ratio) | dB   | Absolute power ratio in 1k–4kHz presence band. Positive = vocal louder than instrumental.                                  |
+| Pitch Confidence (voiced frames)   | —    | Mean voiced probability, masked to voiced frames only. Arabic consonants (ع, ح, خ, ق) are unvoiced and correctly excluded. |
+| Pitch Stability (F0 variance)      | Hz²  | Variance of F0 across voiced frames. Lower = more consistent pitch.                                                        |
+| Spectral Flatness (vocal stem)     | —    | Near 0 = tonal/harmonic; near 1 = noise-like/breathy.                                                                      |
 
 **Feature usage by mode:**
 
-| Feature          | QA / Batch | Prompt Debug | Ceiling | Style Gap | `--stems` |
-|------------------|:----------:|:------------:|:-------:|:---------:|:---------:|
-| LUFS             | ✓          | ✓            | ✓       | ✓         | Mix+Voc+Inst |
-| RMS energy       | ✓          | ✓            | ✓       | ✓         | Mix+Voc+Inst |
-| Dynamic range    | ✓          | ✓            | ✓       | ✓         | Mix+Voc+Inst |
-| Spectral centroid| ✓          | ✓            | ✓       | ✓         | Mix+Voc+Inst |
-| Spectral rolloff | ✓          | ✓            | ✓       | ✓         | Mix+Voc+Inst |
-| Low-mid energy   | ✓          | ✓            | ✓       | ✓         | Mix+Voc+Inst |
-| Presence band    | ✓          | ✓            | ✓       | ✓         | Mix+Voc+Inst |
-| High shelf       | ✓          | ✓            | —       | ✓         | Mix+Voc+Inst |
-| Stereo width     | ✓          | ✓            | —       | ✓         | Mix+Voc+Inst |
-| MFCC distance    | ✓          | ✓            | ✓       | ✓         | —            |
-| Tempo            | scored=0   | scored=0     | —       | —         | Mix+Voc+Inst |
-| Zero crossing rate | ✓        | ✓            | ✓       | —         | Mix+Voc+Inst |
-| HNR              | —          | —            | —       | —         | Vocal only   |
-| VAR (dB)         | —          | —            | —       | —         | Vocal only   |
-| Pitch Confidence | —          | —            | —       | —         | Vocal only   |
-| Pitch Stability  | —          | —            | —       | —         | Vocal only   |
-| Spectral Flatness| —          | —            | —       | —         | Vocal only   |
+| Feature            | QA / Batch | Prompt Debug | Ceiling | Style Gap |  `--stems`   |
+| ------------------ | :--------: | :----------: | :-----: | :-------: | :----------: |
+| LUFS               |     ✓      |      ✓       |    ✓    |     ✓     | Mix+Voc+Inst |
+| RMS energy         |     ✓      |      ✓       |    ✓    |     ✓     | Mix+Voc+Inst |
+| Dynamic range      |     ✓      |      ✓       |    ✓    |     ✓     | Mix+Voc+Inst |
+| Spectral centroid  |     ✓      |      ✓       |    ✓    |     ✓     | Mix+Voc+Inst |
+| Spectral rolloff   |     ✓      |      ✓       |    ✓    |     ✓     | Mix+Voc+Inst |
+| Low-mid energy     |     ✓      |      ✓       |    ✓    |     ✓     | Mix+Voc+Inst |
+| Presence band      |     ✓      |      ✓       |    ✓    |     ✓     | Mix+Voc+Inst |
+| High shelf         |     ✓      |      ✓       |    —    |     ✓     | Mix+Voc+Inst |
+| Stereo width       |     ✓      |      ✓       |    —    |     ✓     | Mix+Voc+Inst |
+| MFCC distance      |     ✓      |      ✓       |    ✓    |     ✓     |      —       |
+| Tempo              |  scored=0  |   scored=0   |    —    |     —     | Mix+Voc+Inst |
+| Zero crossing rate |     ✓      |      ✓       |    ✓    |     —     | Mix+Voc+Inst |
+| HNR                |     —      |      —       |    —    |     —     |  Vocal only  |
+| VAR (dB)           |     —      |      —       |    —    |     —     |  Vocal only  |
+| Pitch Confidence   |     —      |      —       |    —    |     —     |  Vocal only  |
+| Pitch Stability    |     —      |      —       |    —    |     —     |  Vocal only  |
+| Spectral Flatness  |     —      |      —       |    —    |     —     |  Vocal only  |
 
 ---
 
@@ -296,20 +298,20 @@ Binary flags (`abs(delta) > threshold`) are used only for report labels — the 
 
 Current values in `config.py` — v1 heuristics calibrated through Sessions 3–9.
 
-| Feature           | Threshold | Weight | Notes                                                      |
-|-------------------|-----------|--------|------------------------------------------------------------|
-| `lufs`            | ±3.0 LU   | 1.5    | Widened from ±2.0 after Session 3 real-chunk run           |
-| `rms`             | ±0.05     | 0.8    |                                                            |
-| `crest_factor_db` | ±3.0 dB   | 1.0    |                                                            |
-| `spectral_centroid` | ±500 Hz | 1.0    |                                                            |
-| `spectral_rolloff`| ±1000 Hz  | 0.8    |                                                            |
-| `low_mid_energy`  | ±0.10 frac| 1.0    |                                                            |
-| `presence_band`   | ±0.10 frac| 1.2    | Vocal clarity — higher weight                              |
-| `high_shelf`      | ±0.05 frac| 0.7    | ⚠ Baseline is ~0.018; may need tightening to ±0.02         |
-| `stereo_width`    | ±0.10     | 1.0    | Recalibrated Session 9 (S/M RMS ratio scale; old ±0.15 was abs(L-R)) |
-| `tempo`           | 999.0     | 0.0    | Disabled — unreliable on Arabic poetry                     |
-| `mfcc_distance`   | ±0.10     | 1.5    | Calibrated Session 18: 7 same-voice chunks all scored < 0.05 (max 0.0287, Part C). Tightened from interim ±0.15. Gives 3.5× headroom above worst observed. |
-| `zcr`             | ±0.05     | 0.5    |                                                            |
+| Feature             | Threshold  | Weight | Notes                                                                                                                                                      |
+| ------------------- | ---------- | ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `lufs`              | ±3.0 LU    | 1.5    | Widened from ±2.0 after Session 3 real-chunk run                                                                                                           |
+| `rms`               | ±0.05      | 0.8    |                                                                                                                                                            |
+| `crest_factor_db`   | ±3.0 dB    | 1.0    |                                                                                                                                                            |
+| `spectral_centroid` | ±500 Hz    | 1.0    |                                                                                                                                                            |
+| `spectral_rolloff`  | ±1000 Hz   | 0.8    |                                                                                                                                                            |
+| `low_mid_energy`    | ±0.10 frac | 1.0    |                                                                                                                                                            |
+| `presence_band`     | ±0.10 frac | 1.2    | Vocal clarity — higher weight                                                                                                                              |
+| `high_shelf`        | ±0.05 frac | 0.7    | ⚠ Baseline is ~0.018; may need tightening to ±0.02                                                                                                         |
+| `stereo_width`      | ±0.10      | 1.0    | Recalibrated Session 9 (S/M RMS ratio scale; old ±0.15 was abs(L-R))                                                                                       |
+| `tempo`             | 999.0      | 0.0    | Disabled — unreliable on Arabic poetry                                                                                                                     |
+| `mfcc_distance`     | ±0.10      | 1.5    | Calibrated Session 18: 7 same-voice chunks all scored < 0.05 (max 0.0287, Part C). Tightened from interim ±0.15. Gives 3.5× headroom above worst observed. |
+| `zcr`               | ±0.05      | 0.5    |                                                                                                                                                            |
 
 To recalibrate: edit `THRESHOLDS` and `WEIGHTS` in `config.py` directly. No other mechanism exists by design.
 
@@ -328,12 +330,12 @@ Source: Expert B (Mastering), Session 8 consultation.
 
 ### Current Batch Scores (post-Session 18, post-fix)
 
-| Rank | Chunk                  | Score    | Flagged                             |
-|:----:|:-----------------------|---------:|:------------------------------------|
-| 1    | FULL_qais_part_C       | 79.3/100 | Spectral centroid, Spectral rolloff |
-| 2    | FULL_qais_part_A_02    | 98.3/100 | Spectral centroid, Spectral rolloff |
-| 3    | FULL_qais_part_F (Edit)| 99.7/100 | Spectral rolloff                    |
-| 4–6  | Parts B, E, G          | 100.0/100| —                                   |
+| Rank | Chunk                   |     Score | Flagged                             |
+| :--: | :---------------------- | --------: | :---------------------------------- |
+|  1   | FULL_qais_part_C        |  79.3/100 | Spectral centroid, Spectral rolloff |
+|  2   | FULL_qais_part_A_02     |  98.3/100 | Spectral centroid, Spectral rolloff |
+|  3   | FULL_qais_part_F (Edit) |  99.7/100 | Spectral rolloff                    |
+| 4–6  | Parts B, E, G           | 100.0/100 | —                                   |
 
 Part C is a persistent outlier (+1061.7 Hz centroid, +2453.0 Hz rolloff, MFCC distance 0.0287). Decision pending — timbre is within family; deviation is spectral/arrangement only.
 
