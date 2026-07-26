@@ -23,10 +23,10 @@ It does NOT affect the score — the continuous formula handles severity.
 Does NOT modify extractor.py, profiler.py, or config.py.
 """
 
-
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
+
 
 def score_chunk(analysis: dict, thresholds: dict, weights: dict) -> dict:
     """
@@ -56,25 +56,50 @@ def score_chunk(analysis: dict, thresholds: dict, weights: dict) -> dict:
         abs(mfcc_distance) == mfcc_distance, so the scoring formula is unchanged.
         mfcc_deltas (the 13-element list) is NOT used in scoring — only in
         the report's MFCC detail block.
-        
+
         ⚠ CALIBRATION NOTE: The previous threshold was ±7.0, which was set
         against the old mean-absolute-delta formula and was unreachable by
         cosine distance (max 2.0). The feature was non-functional for all
-        prior sessions. Current threshold is ±0.15 — recalibrate after the
-        first real batch run if same-voice chunks consistently score below 0.05.
+        prior sessions. Current threshold is ±0.10 — tightened from ±0.15 in Session 18 if same-voice chunks consistently score below 0.05.
     """
-    deltas      = analysis["deltas"]
-    total_weight = sum(weights.values())
+    deltas = analysis["deltas"]
+
+    # BUG-TQ-05 fix: a threshold of 0.0 (e.g. stereo_width, "Disabled" per
+    # config.py's own comment) was fed straight into `abs(delta) / threshold`
+    # below, raising ZeroDivisionError("float division by zero") on every
+    # single call to score_chunk() — i.e. every chunk, regardless of audio
+    # content. `tempo` is disabled via weight=0.0 instead, which doesn't hit
+    # this division at all, so it never surfaced there.
+    #
+    # threshold <= 0.0 is now treated as an explicit "feature disabled"
+    # sentinel: excluded from the penalty sum AND the weight denominator,
+    # so a disabled feature behaves identically regardless of which knob
+    # (threshold or weight) was used to disable it.
+    active_features = [f for f in thresholds if thresholds[f] > 0.0]
+    total_weight = sum(weights[f] for f in active_features)
 
     scored_features: dict[str, dict] = {}
     total_weighted_penalty = 0.0
 
     for feature, threshold in thresholds.items():
-        delta  = deltas[feature]   # scalar for all 12 keys; mfcc_deltas ignored
+        delta = deltas[feature]  # scalar for all 12 keys; mfcc_deltas ignored
         weight = weights[feature]
 
+        if threshold <= 0.0:
+            scored_features[feature] = {
+                "delta": delta,
+                "threshold": threshold,
+                "weight": weight,
+                "raw_penalty": 0.0,
+                "capped_penalty": 0.0,
+                "weighted_penalty": 0.0,
+                "flagged": False,
+                "disabled": True,
+            }
+            continue
+
         # Continuous penalty — 0 inside threshold, linear beyond, capped at 2×
-        raw_penalty    = max(0.0, abs(delta) / threshold - 1.0)
+        raw_penalty = max(0.0, abs(delta) / threshold - 1.0)
         capped_penalty = min(raw_penalty, 2.0)
         weighted_penalty = capped_penalty * weight
 
@@ -82,27 +107,33 @@ def score_chunk(analysis: dict, thresholds: dict, weights: dict) -> dict:
         flagged = abs(delta) > threshold
 
         scored_features[feature] = {
-            "delta":             delta,
-            "threshold":         threshold,
-            "weight":            weight,
-            "raw_penalty":       round(raw_penalty,       8),
-            "capped_penalty":    round(capped_penalty,    8),
-            "weighted_penalty":  round(weighted_penalty,  8),
-            "flagged":           flagged,
+            "delta": delta,
+            "threshold": threshold,
+            "weight": weight,
+            "raw_penalty": round(raw_penalty, 8),
+            "capped_penalty": round(capped_penalty, 8),
+            "weighted_penalty": round(weighted_penalty, 8),
+            "flagged": flagged,
         }
 
         total_weighted_penalty += weighted_penalty
 
-    raw_score         = 100.0 - (total_weighted_penalty / total_weight) * 100.0
-    consistency_score = max(0.0, round(raw_score, 1))
-    flagged_features  = [f for f, v in scored_features.items() if v["flagged"]]
+    # Guard: only matters if every feature were disabled at once (not the
+    # case today), but avoids reintroducing a ZeroDivisionError if config.py
+    # is edited further.
+    if total_weight <= 0.0:
+        consistency_score = 100.0
+    else:
+        raw_score = 100.0 - (total_weighted_penalty / total_weight) * 100.0
+        consistency_score = max(0.0, round(raw_score, 1))
+    flagged_features = [f for f, v in scored_features.items() if v["flagged"]]
 
     return {
-        "consistency_score":      consistency_score,
-        "flagged_features":       flagged_features,
-        "scored_features":        scored_features,
+        "consistency_score": consistency_score,
+        "flagged_features": flagged_features,
+        "scored_features": scored_features,
         "total_weighted_penalty": round(total_weighted_penalty, 8),
-        "total_weight":           round(total_weight,           8),
+        "total_weight": round(total_weight, 8),
     }
 
 
@@ -121,17 +152,17 @@ if __name__ == "__main__":
 
     # Build a synthetic zero-delta analysis (self-identity equivalent)
     zero_deltas: dict = {k: 0.0 for k in THRESHOLDS}
-    zero_deltas["mfcc_deltas"] = [0.0] * 13   # not scored, must not crash
+    zero_deltas["mfcc_deltas"] = [0.0] * 13  # not scored, must not crash
 
     synthetic_analysis = {
-        "chunk_path":       "synthetic_self_identity",
-        "chunk_values":     {},
+        "chunk_path": "synthetic_self_identity",
+        "chunk_values": {},
         "reference_values": {},
-        "deltas":           zero_deltas,
+        "deltas": zero_deltas,
     }
 
     score = score_chunk(synthetic_analysis, THRESHOLDS, WEIGHTS)
-    cs    = score["consistency_score"]
+    cs = score["consistency_score"]
 
     print(f"\n  Zero-delta (self-identity) Consistency Score: {cs}/100")
 
@@ -140,26 +171,36 @@ if __name__ == "__main__":
     else:
         print(f"  FAIL — expected 100.0, got {cs}")
         print("  Check scoring formula in score_chunk().")
-        import sys; sys.exit(1)
+        import sys
+
+        sys.exit(1)
 
     # Verify max-penalty case (all deltas = 3× threshold → capped at 2×)
     max_deltas: dict = {k: THRESHOLDS[k] * 3.0 for k in THRESHOLDS}
     max_deltas["mfcc_deltas"] = [0.0] * 13
 
     max_analysis = {
-        "chunk_path":       "synthetic_max_penalty",
-        "chunk_values":     {},
+        "chunk_path": "synthetic_max_penalty",
+        "chunk_values": {},
         "reference_values": {},
-        "deltas":           max_deltas,
+        "deltas": max_deltas,
     }
 
     max_score = score_chunk(max_analysis, THRESHOLDS, WEIGHTS)
-    ms        = max_score["consistency_score"]
-    all_flagged = len(max_score["flagged_features"]) == len(THRESHOLDS)
+    ms = max_score["consistency_score"]
+
+    # Disabled features (threshold <= 0.0, e.g. stereo_width) never flag by
+    # design — exclude them from the "all flagged" expectation instead of
+    # multiplying their threshold by 3 and dividing by it.
+    disabled = [f for f in THRESHOLDS if THRESHOLDS[f] <= 0.0]
+    active = [f for f in THRESHOLDS if f not in disabled]
+    all_flagged = len(max_score["flagged_features"]) == len(active)
 
     print(f"\n  3× threshold (all capped at 2×) Consistency Score: {ms}/100")
-    print(f"  Expected: 0.0 (penalty = 2× for every feature)")
-    print(f"  All features flagged: {'PASS' if all_flagged else 'FAIL'}")
+    print(f"  Expected: 0.0 (penalty = 2× for every active feature)")
+    if disabled:
+        print(f"  Disabled features (excluded from flag check): {disabled}")
+    print(f"  All active features flagged: {'PASS' if all_flagged else 'FAIL'}")
 
     if ms == 0.0 and all_flagged:
         print("  PASS — max-penalty case produces 0.0 and all flags set  OK")

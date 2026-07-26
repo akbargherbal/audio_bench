@@ -1,6 +1,0 @@
-<expert_questions>
-  <question>spectral_rolloff uses librosa's default roll_percent=0.85 (the frequency below which 85% of spectral energy falls). Is this percentile appropriate for comparing vocal-dominant Arabic music chunks, or does it produce an Hz value that is more sensitive to low-energy high-frequency noise than to actual tonal content?</question>
-  <question>The band energy fractions (low_mid, presence, high_shelf) run a single rfft over the entire signal, not a windowed STFT. For chunks of differing duration, does a global FFT accurately represent the spectral shape of the content, or does it weight longer silence/ intro sections in a way that distorts the comparison?</question>
-  <question>MFCC distance is mean(abs(chunk_mfccs − ref_mfccs)) computed on 13 mean-across-time coefficients. Coeff 01 (energy/C0) dominates magnitude. Is the mean-absolute-distance formula appropriately normalised across coefficients of vastly different scale, or is the distance figure effectively driven by C01 alone?</question>
-  <question>Stereo width is computed as mean(abs(L − R)). This is an amplitude difference, not a correlation-based width metric. Does this measure meaningfully capture "spatial consistency," or does it conflate a loud centre-panned element (which reduces L−R) with a narrow stereo image?</question>
-</expert_questions>

@@ -31,6 +31,9 @@ python main.py --reference data/audio/REF_01.mp3 --chunk data/audio/CHUNK_B.mp3
 # Batch folder — one report per chunk + ranked summary
 python main.py --reference data/audio/REF_01.mp3 --batch data/audio/WAV/
 
+# Save aggregate run results to a structured JSON file (pandas friendly)
+python main.py --reference data/audio/REF_01.mp3 --batch data/audio/WAV/ --save-json
+
 # Prompt debug — QA report + Suno prompt implications
 python main.py --reference data/audio/REF_01.mp3 --chunk data/audio/CHUNK_B.mp3 --mode prompt-debug
 
@@ -61,6 +64,7 @@ python main.py --reference <ref.mp3|wav> --chunk <chunk.mp3|wav>
 python main.py --reference <ref.mp3|wav> --chunk <chunk.mp3|wav> --output reports/chunk_01.md
 python main.py --reference <ref.mp3|wav> --chunk <chunk.mp3|wav> --json
 python main.py --reference <ref.mp3|wav> --chunk <chunk.mp3|wav> --stems
+python main.py --reference <ref.mp3|wav> --chunk <chunk.mp3|wav> --save-json [FILE]
 ```
 
 Compares one chunk against the reference. Outputs a Markdown (default) or JSON report to stdout or a file.
@@ -95,14 +99,16 @@ Compares one chunk against the reference. Outputs a Markdown (default) or JSON r
 ```bash
 python main.py --reference <ref.mp3|wav> --batch <folder/>
 python main.py --reference <ref.mp3|wav> --batch <folder/> --json
+python main.py --reference <ref.mp3|wav> --batch <folder/> --save-json [FILE]
 ```
 
 Processes every `.mp3` / `.wav` file in the folder. Writes:
 
 - `reports/<chunk_stem>_report.md` — one report per chunk
 - `reports/summary.md` — ranked table, worst chunk first
+- `reports/batch_results.json` — if `--save-json` is present without an explicit filename
 
-Natively prints a terminal-friendly **🏆 TOP/BOTTOM 5 PERFORMANCE COMPARISON** console summary upon completion, allowing you to easily contrast what went well against what went wrong.
+Natively prints a terminal-friendly **🏆 TOP 5 PERFORMANCE COMPARISON** console summary upon completion, allowing you to easily contrast what went well against what went wrong.
 
 The reference profile is extracted once and cached to `reference_profile.json`. Subsequent runs against the same reference skip extraction.
 
@@ -119,7 +125,80 @@ Sorted worst-first. `--mode prompt-debug` is noted but ignored in batch mode —
 
 ---
 
-### 3. Prompt Debug Mode
+### 3. Exporting Results to JSON (`--save-json`)
+
+Use the optional `--save-json [FILE]` parameter to export full structured data from single runs, batches, style comparisons, or ceiling analyses.
+
+#### Difference between `--json` and `--save-json`
+
+- `--json` is a **formatting toggle** for stdout — it swaps the human-readable Markdown output text for a raw JSON string. If outputting to a terminal, you cannot get both a Markdown report and a JSON string at once.
+- `--save-json` is an **independent file-writer** — it writes a stable, comprehensive data record to a dedicated `.json` file, leaving stdout completely clean to output standard Markdown reports or redirect to `.md` files. Both flags can be used together.
+
+#### Default Output Paths
+
+If no explicit path is provided, the CLI smart-defaults based on execution:
+
+- **Single-file Modes** (`--reference`, `--ceiling`, `--style-compare`): Defaults to `./results.json`.
+- **Batch Mode** (`--batch`): Automatically diverts the default path to `reports/batch_results.json` to keep your root project directory clean.
+
+#### Pandas Analysis Cheat Sheet
+
+Load your data straight into Pandas for analysis, visualization, or diagnostic logging.
+
+**1. Loading a Single-Chunk, Ceiling, or Style QA File:**
+
+```python
+import pandas as pd
+import json
+
+with open("results.json", encoding="utf-8") as f:
+    data = json.load(f)
+
+# Flatten and structure the scalar feature properties
+df = pd.json_normalize(data["features"], sep="_")
+df.index = list(data["features"].keys())
+
+# Transpose for an instantly readable parameter grid:
+# Row index = feature name, Columns = chunk_value, reference_value, delta, etc.
+print(df.T)
+```
+
+**2. Loading an Aggregate Batch JSON File:**
+
+```python
+import pandas as pd
+import json
+
+with open("reports/batch_results.json", encoding="utf-8") as f:
+    data = json.load(f)
+
+# Load metadata summary of the batch run
+print("Summary statistics:", data["summary"])
+
+# Option A: One row per chunk
+df_chunks = pd.DataFrame(data["chunks"])
+# Columns: chunk_name, reference_name, consistency_score, flagged_count, flagged_features, etc.
+print(df_chunks[["chunk_name", "consistency_score", "flagged_count"]])
+
+# Option B: Flatten all features across all chunks for parameter-level regression
+records = []
+for chunk in data["chunks"]:
+    # Skip processing errors safely
+    if chunk.get("error") is not None:
+        continue
+    for feat, vals in chunk["features"].items():
+        records.append({
+            "chunk_name": chunk["chunk_name"],
+            "feature": feat,
+            **vals
+        })
+df_flat = pd.DataFrame(records)
+print(df_flat.head(15))
+```
+
+---
+
+### 4. Prompt Debug Mode
 
 ```bash
 python main.py --reference <ref.mp3|wav> --chunk <new_gen.mp3> --mode prompt-debug
@@ -139,12 +218,13 @@ Single-chunk only. `--mode prompt-debug` is ignored in batch mode.
 
 ---
 
-### 4. Ceiling Analysis Mode
+### 5. Ceiling Analysis Mode
 
 ```bash
 python main.py --ceiling <commercial_track.mp3> --chunk <chunk.mp3>
 python main.py --ceiling <commercial_track.mp3> --chunk <chunk.mp3> --output reports/ceiling.md
 python main.py --ceiling <commercial_track.mp3> --chunk <chunk.mp3> --json
+python main.py --ceiling <commercial_track.mp3> --chunk <chunk.mp3> --save-json
 ```
 
 **Purpose:** Production hygiene red-flag check. Detects gross production failures only — not genre differences.
@@ -161,12 +241,13 @@ Single-chunk only — `--ceiling` with `--batch` errors explicitly.
 
 ---
 
-### 5. Style Gap Analysis Mode
+### 6. Style Gap Analysis Mode
 
 ```bash
 python main.py --style-compare <commercial_track.mp3> --chunk <chunk.mp3>
 python main.py --style-compare <commercial_track.mp3> --chunk <chunk.mp3> --output reports/style_gap.md
 python main.py --style-compare <commercial_track.mp3> --chunk <chunk.mp3> --json
+python main.py --style-compare <commercial_track.mp3> --chunk <chunk.mp3> --save-json
 ```
 
 **Purpose:** Neutral mix-character briefing. Compares 10 mix-relevant features between a Suno chunk and a commercial reference track. No score, no thresholds, no pass/fail. Output is a paste-ready Markdown block for LLM-assisted mix-character reasoning.
@@ -209,6 +290,7 @@ TRACK_QA/
     └── reports/                # auto-created in batch mode
         ├── <chunk>_report.md
         ├── summary.md
+        ├── batch_results.json  # aggregate structured export file
         └── ceiling_<chunk>.md
 ```
 
@@ -298,20 +380,20 @@ Binary flags (`abs(delta) > threshold`) are used only for report labels — the 
 
 Current values in `config.py` — v1 heuristics calibrated through Sessions 3–9.
 
-| Feature             | Threshold  | Weight | Notes                                                                                                                                                      |
-| ------------------- | ---------- | ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `lufs`              | ±3.0 LU    | 1.5    | Widened from ±2.0 after Session 3 real-chunk run                                                                                                           |
-| `rms`               | ±0.05      | 0.8    |                                                                                                                                                            |
-| `crest_factor_db`   | ±3.0 dB    | 1.0    |                                                                                                                                                            |
-| `spectral_centroid` | ±500 Hz    | 1.0    |                                                                                                                                                            |
-| `spectral_rolloff`  | ±1000 Hz   | 0.8    |                                                                                                                                                            |
-| `low_mid_energy`    | ±0.10 frac | 1.0    |                                                                                                                                                            |
-| `presence_band`     | ±0.10 frac | 1.2    | Vocal clarity — higher weight                                                                                                                              |
-| `high_shelf`        | ±0.05 frac | 0.7    | ⚠ Baseline is ~0.018; may need tightening to ±0.02                                                                                                         |
-| `stereo_width`      | ±0.10      | 1.0    | Recalibrated Session 9 (S/M RMS ratio scale; old ±0.15 was abs(L-R))                                                                                       |
-| `tempo`             | 999.0      | 0.0    | Disabled — unreliable on Arabic poetry                                                                                                                     |
-| `mfcc_distance`     | ±0.10      | 1.5    | Calibrated Session 18: 7 same-voice chunks all scored < 0.05 (max 0.0287, Part C). Tightened from interim ±0.15. Gives 3.5× headroom above worst observed. |
-| `zcr`               | ±0.05      | 0.5    |                                                                                                                                                            |
+| Feature             | Threshold  | Weight | Notes                                                                                                                                                   |
+| ------------------- | ---------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `lufs`              | ±3.0 LU    | 1.5    | Widened from ±2.0 after Session 3 real-chunk run                                                                                                        |
+| `rms`               | ±0.05      | 0.8    |                                                                                                                                                         |
+| `crest_factor_db`   | ±3.0 dB    | 1.0    |                                                                                                                                                         |
+| `spectral_centroid` | ±500 Hz    | 1.0    |                                                                                                                                                         |
+| `spectral_rolloff`  | ±1000 Hz   | 0.8    |                                                                                                                                                         |
+| `low_mid_energy`    | ±0.10 frac | 1.0    |                                                                                                                                                         |
+| `presence_band`     | ±0.10 frac | 1.2    | Vocal clarity — higher weight                                                                                                                           |
+| `high_shelf`        | ±0.05 frac | 0.7    | ⚠ Baseline is ~0.018; may need tightening to ±0.02                                                                                                      |
+| `stereo_width`      | ±0.10      | 1.0    | Recalibrated Session 9 (S/M RMS ratio scale; old ±0.15 was abs(L-R))                                                                                    |
+| `tempo`             | 999.0      | 0.0    | Disabled — unreliable on Arabic poetry                                                                                                                  |
+| `mfcc_distance`     | ±0.10      | 1.5    | Calibrated Session 18: 7 same-voice chunks all scored < 0.05 (max 0.0287, Part C). Timbre is very consistent. Gives 3.5× headroom above worst observed. |
+| `zcr`               | ±0.05      | 0.5    |                                                                                                                                                         |
 
 To recalibrate: edit `THRESHOLDS` and `WEIGHTS` in `config.py` directly. No other mechanism exists by design.
 
@@ -337,7 +419,7 @@ Source: Expert B (Mastering), Session 8 consultation.
 |  3   | FULL_qais_part_F (Edit) |  99.7/100 | Spectral rolloff                    |
 | 4–6  | Parts B, E, G           | 100.0/100 | —                                   |
 
-Part C is a persistent outlier (+1061.7 Hz centroid, +2453.0 Hz rolloff, MFCC distance 0.0287). Decision pending — timbre is within family; deviation is spectral/arrangement only.
+Part C is a persistent outlier (+1061.7 Hz centroid, +2453.0 Hz rolloff, MFCC distance 0.0287). Timbre is within family; deviation is spectral/arrangement only.
 
 ---
 

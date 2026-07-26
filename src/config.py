@@ -50,33 +50,30 @@ a key is present in one but missing from the other.
 THRESHOLDS: dict[str, float] = {
     "lufs": 3.0,  # ±3.0 LU    — loudness consistency (widened from 2.0)
     "rms": 0.05,  # ±0.05       — overall energy level
-                  #               ⚠ BUG-TQ-02 fix: RMS is now global waveform RMS
-                  #               (was frame-based mean). Recalibrate if batch
-                  #               scores shift materially after fix.
+    #               ⚠ BUG-TQ-02 fix: RMS is now global waveform RMS
+    #               (was frame-based mean). Recalibrate if batch
+    #               scores shift materially after fix.
     "crest_factor_db": 3.0,  # ±3.0 dB — crest factor (BUG-TQ-01 fix: was
-                              #            misnamed "dynamic_range"; crest factor
-                              #            = 20·log10(peak/RMS), not macro
-                              #            loudness spread)
+    #            misnamed "dynamic_range"; crest factor
+    #            = 20·log10(peak/RMS), not macro
+    #            loudness spread)
     "spectral_centroid": 500.0,  # ±500 Hz     — brightness drift
     "spectral_rolloff": 1000.0,  # ±1000 Hz    — high-frequency content
     "low_mid_energy": 0.10,  # ±0.10 frac  — muddiness band [0,1]
     "presence_band": 0.10,  # ±0.10 frac  — vocal clarity band [0,1]
     "high_shelf": 0.05,  # ±0.05 frac  — air/harshness [0,1] ⚠ watch
-    "stereo_width": 0.10,  # ±0.10       — spatial consistency (recalibrated Session 9)
-                           #               S/M RMS ratio scale; ref = 0.408783
-                           #               batch max delta = 0.064 (Part A); headroom retained
-                           #               old value ±0.15 was calibrated against obsolete abs(L-R)
+    "stereo_width": 0.0,  # Disabled — systematic Suno↔reference offset, not a per-chunk discriminator
     "tempo": 999.0,  # Disabled    — pacing (unreliable on poetry)
     "mfcc_distance": 0.10,  # ±0.10       — timbre fingerprint (BUG-TQ-03 fix)
-                             # Previous value ±7.0 was calibrated against
-                             # mean-absolute-delta and was NEVER reachable after
-                             # the switch to cosine distance (range [0, 2]).
-                             # The feature was silently non-functional in the scorer
-                             # for all prior sessions.
-                             # Session 18 calibration (7 same-voice chunks):
-                             #   max observed = 0.0287 (Part C); all < 0.05.
-                             # Tightened from 0.15 → 0.10 per handover rule.
-                             # Gives 3.5× headroom above worst observed value.
+    # Previous value ±7.0 was calibrated against
+    # mean-absolute-delta and was NEVER reachable after
+    # the switch to cosine distance (range [0, 2]).
+    # The feature was silently non-functional in the scorer
+    # for all prior sessions.
+    # Session 18 calibration (7 same-voice chunks):
+    #   max observed = 0.0287 (Part C); all < 0.05.
+    # Tightened from 0.15 → 0.10 per handover rule.
+    # Gives 3.5× headroom above worst observed value.
     "zcr": 0.05,  # ±0.05       — noise/distortion indicator
 }
 
@@ -149,11 +146,13 @@ CEILING_THRESHOLDS: dict[str, float] = {
     "lufs": 8.0,  # ±8.0 LU    — truly buried or crushed
     "rms": 0.15,  # ±0.15      — gross energy mismatch
     "crest_factor_db": 8.0,  # ±8.0 dB    — severely squashed or expanded
-                              # (BUG-TQ-01 fix: was "dynamic_range")
+    # (BUG-TQ-01 fix: was "dynamic_range")
     "spectral_centroid": 2500.0,  # ±2500 Hz   — extremely dark or harsh
     "spectral_rolloff": 4000.0,  # ±4000 Hz   — grossly different freq. balance
     "low_mid_energy": 0.25,  # ±0.25 frac — severe muddiness buildup
     "presence_band": 0.25,  # ±0.25 frac — vocal severely buried or peaked
     "zcr": 0.15,  # ±0.15      — gross noise or distortion
-    "mfcc_distance": 20.0,  # ±20.0      — completely different timbre
+    "mfcc_distance": 1.5,  # ±1.5       — completely different timbre
+    # BUG-TQ-03 redux: cosine distance range is [0,2];
+    # 20.0 was unreachable. 1.5 = 75% of max possible distance.
 }

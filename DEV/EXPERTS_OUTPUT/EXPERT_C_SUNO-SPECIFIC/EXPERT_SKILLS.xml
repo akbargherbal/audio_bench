@@ -1,5 +1,0 @@
-<expert_skills>
-  <skill>Understanding of how Suno generates audio in discrete segments and what spectral artifacts typically appear at generation boundaries versus within a continuous generation.</skill>
-  <skill>Understanding of how Suno's style and prompt conditioning affects spectral consistency across multiple generations from the same seed — and how much variance is normal versus anomalous.</skill>
-  <skill>Knowledge of what "reference consistency" means when the reference is itself an AI output, not a human recording, and what assumptions that transfers onto every score the tool produces.</skill>
-</expert_skills>

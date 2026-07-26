@@ -10,15 +10,18 @@ Usage (single):
     python main.py --reference <ref.mp3>  --chunk <chunk.mp3>  --output report.md
     python main.py --reference <ref.mp3>  --chunk <chunk.mp3>  --json
     python main.py --reference <ref.mp3>  --chunk <chunk.mp3>  --stems
+    python main.py --reference <ref.mp3>  --chunk <chunk.mp3>  --save-json
 
 Usage (batch):
     python main.py --reference <ref.mp3>  --batch <folder/>
     python main.py --reference <ref.mp3>  --batch <folder/>  --json
+    python main.py --reference <ref.mp3>  --batch <folder/>  --save-json
 
 Batch output:
     reports/<chunk_stem>_report.md   — one Markdown report per chunk
     reports/<chunk_stem>_report.json — if --json is set
     reports/summary.md               — ranked table, worst chunk first
+    reports/batch_results.json       — if --save-json is set
 
 Reference profile caching:
     On first run, reference_profile.json is written to the working directory.
@@ -52,6 +55,7 @@ from extractor import TARGET_SR  # BUG-TQ-04: for cache sample-rate check
 _PROFILE_CACHE = "reference_profile.json"
 _REPORTS_DIR = "reports"
 _AUDIO_EXTS = {".mp3", ".wav"}
+_SAVE_JSON_DEFAULT = "results.json"  # --save-json default filename
 
 # Feature display names for the batch summary table.
 # Mirrors reporter._FEATURE_DISPLAY — defined here to avoid importing a private
@@ -70,6 +74,172 @@ _SUMMARY_NAMES: dict[str, str] = {
     "zcr": "Zero crossing rate",
     "mfcc_distance": "MFCC distance",
 }
+
+
+# ---------------------------------------------------------------------------
+# JSON record builders — pandas/analysis-friendly data structures
+#
+# These functions are called when --save-json is active. They are
+# intentionally separate from the report generators so the JSON schema
+# stays stable regardless of Markdown formatting changes.
+#
+# Pandas loading examples:
+#   Single / ceiling / style:
+#       df = pd.json_normalize(data["features"], sep="_")
+#       df.index = list(data["features"].keys())
+#
+#   Batch — flat feature table (one row per feature per chunk):
+#       records = []
+#       for chunk in data["chunks"]:
+#           if chunk.get("error"):
+#               continue
+#           for feat, vals in chunk["features"].items():
+#               records.append({"chunk": chunk["chunk_name"], "feature": feat, **vals})
+#       df = pd.DataFrame(records)
+#
+#   Batch — one row per chunk:
+#       df = pd.DataFrame(data["chunks"])   # columns: chunk_name, score, …
+# ---------------------------------------------------------------------------
+
+
+def _build_qa_record(
+    chunk_name: str,
+    reference_name: str,
+    analysis: dict,
+    score: dict,
+) -> dict:
+    """
+    Build a pandas-friendly record from a single QA pipeline run.
+
+    Features are stored as a nested dict keyed by feature name so the
+    caller can either iterate them or use pd.json_normalize() to flatten
+    all per-feature sub-fields into individual DataFrame columns.
+
+    mfcc_distance is present inside `features` (it is scored), while raw
+    MFCC coefficients and per-coefficient deltas live under the top-level
+    `mfcc` key so they don't pollute a feature-level analysis.
+    """
+    chunk_vals = analysis["chunk_values"]
+    ref_vals = analysis["reference_values"]
+    deltas = analysis["deltas"]
+
+    features: dict[str, dict] = {}
+    for feat, detail in score["scored_features"].items():
+        features[feat] = {
+            # Raw audio measurements
+            "chunk_value": chunk_vals.get(feat),  # None for mfcc_distance (derived)
+            "reference_value": ref_vals.get(feat),  # None for mfcc_distance (derived)
+            "delta": detail["delta"],
+            # Scoring internals — useful for debugging penalty distribution
+            "threshold": detail["threshold"],
+            "weight": detail["weight"],
+            "raw_penalty": detail["raw_penalty"],
+            "capped_penalty": detail["capped_penalty"],
+            "weighted_penalty": detail["weighted_penalty"],
+            "flagged": detail["flagged"],
+            "disabled": detail.get("disabled", False),
+        }
+
+    return {
+        "mode": "qa",
+        "chunk_name": chunk_name,
+        "reference_name": reference_name,
+        "consistency_score": score["consistency_score"],
+        "flagged_count": len(score["flagged_features"]),
+        "flagged_features": score["flagged_features"],
+        "total_weighted_penalty": score["total_weighted_penalty"],
+        "total_weight": score["total_weight"],
+        "features": features,
+        # MFCC raw data isolated — convenient for coefficient-level analysis
+        "mfcc": {
+            "distance": deltas.get("mfcc_distance"),
+            "chunk_coefficients": chunk_vals.get("mfcc", []),
+            "reference_coefficients": ref_vals.get("mfcc", []),
+            "per_coefficient_deltas": deltas.get("mfcc_deltas", []),
+        },
+    }
+
+
+def _build_ceiling_record(
+    chunk_name: str,
+    ceiling_name: str,
+    chunk_feats: dict,
+    ceiling_feats: dict,
+    deltas: dict,
+    red_flags: list,
+) -> dict:
+    """
+    Build a pandas-friendly record from a ceiling analysis run (Phase 6).
+
+    No scoring formula here — ceiling analysis is binary (flag / no flag).
+    The record mirrors the structure of _build_qa_record where possible so
+    both can be loaded into a common DataFrame when needed.
+    """
+    features: dict[str, dict] = {}
+    for feat, delta in deltas.items():
+        threshold = CEILING_THRESHOLDS.get(feat)
+        features[feat] = {
+            "chunk_value": chunk_feats.get(feat),
+            "ceiling_value": ceiling_feats.get(feat),
+            "delta": delta,
+            "threshold": threshold,
+            "flagged": feat in red_flags,
+        }
+
+    return {
+        "mode": "ceiling",
+        "chunk_name": chunk_name,
+        "ceiling_name": ceiling_name,
+        "flag_count": len(red_flags),
+        "red_flags": red_flags,
+        "features": features,
+        "mfcc": {
+            "distance": deltas.get("mfcc_distance"),
+            "chunk_coefficients": chunk_feats.get("mfcc", []),
+            "ceiling_coefficients": ceiling_feats.get("mfcc", []),
+        },
+    }
+
+
+def _build_style_record(
+    chunk_name: str,
+    style_name: str,
+    chunk_feats: dict,
+    style_feats: dict,
+    deltas: dict,
+) -> dict:
+    """
+    Build a pandas-friendly record from a style gap analysis run (Phase 7).
+
+    No thresholds or scoring — purely a delta table for mix-character work.
+    """
+    features: dict[str, dict] = {}
+    for feat, delta in deltas.items():
+        features[feat] = {
+            "chunk_value": chunk_feats.get(feat),
+            "style_value": style_feats.get(feat),
+            "delta": delta,
+        }
+
+    return {
+        "mode": "style_compare",
+        "chunk_name": chunk_name,
+        "style_name": style_name,
+        "features": features,
+        "mfcc": {
+            "distance": deltas.get("mfcc_distance"),
+            "chunk_coefficients": chunk_feats.get("mfcc", []),
+            "style_coefficients": style_feats.get("mfcc", []),
+        },
+    }
+
+
+def _write_json(data: dict, path: str, label: str = "JSON") -> None:
+    """Serialise *data* to *path*, creating parent directories as needed."""
+    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump(data, fh, indent=2)
+    print(f"  [MAIN] {label} saved to: {path}", file=sys.stderr)
 
 
 # ---------------------------------------------------------------------------
@@ -164,6 +334,7 @@ def run_single(
     output_json: bool = False,
     prompt_debug: bool = False,
     use_stems: bool = False,
+    save_json_path: str | None = None,
 ) -> tuple[str, float]:
     """
     Full pipeline: profiler → scorer → reporter for one chunk.
@@ -175,6 +346,9 @@ def run_single(
         prompt_debug:   If True, use generate_prompt_debug_report() which
                         appends the 'Suno Prompt Implications' section.
         use_stems:      If True, separate chunk into stems and append raw metrics.
+        save_json_path: If set, write a structured analysis JSON to this path
+                        for further processing (e.g. pandas). Independent of
+                        output_json — both flags can be active simultaneously.
 
     Returns:
         (report_str, consistency_score) — score is returned so main() can
@@ -230,6 +404,18 @@ def run_single(
     else:
         report_str = generate_report(chunk_name, analysis, score, stem_data=stem_data)
 
+    if save_json_path is not None:
+        record = _build_qa_record(
+            chunk_name=chunk_name,
+            reference_name=os.path.basename(reference_path),
+            analysis=analysis,
+            score=score,
+        )
+        record["config"] = {"thresholds": THRESHOLDS, "weights": WEIGHTS}
+        if stem_data:
+            record["stem_data"] = stem_data
+        _write_json(record, save_json_path, label="Analysis JSON")
+
     return report_str, score["consistency_score"]
 
 
@@ -242,6 +428,7 @@ def run_ceiling(
     ceiling_path: str,
     chunk_path: str,
     output_json: bool = False,
+    save_json_path: str | None = None,
 ) -> str:
     """
     Phase 6 — Ceiling Analysis pipeline (FR-9).
@@ -255,9 +442,12 @@ def run_ceiling(
         high_shelf, stereo_width, tempo
 
     Args:
-        ceiling_path: Path to the commercial reference audio file.
-        chunk_path:   Path to the chunk audio file to evaluate.
-        output_json:  If True, return a JSON string instead of Markdown.
+        ceiling_path:   Path to the commercial reference audio file.
+        chunk_path:     Path to the chunk audio file to evaluate.
+        output_json:    If True, return a JSON string instead of Markdown.
+        save_json_path: If set, write a structured analysis JSON to this path
+                        for further processing (e.g. pandas). Independent of
+                        output_json.
 
     Returns:
         str — Markdown ceiling report or JSON string.
@@ -324,6 +514,18 @@ def run_ceiling(
             indent=2,
         )
 
+    if save_json_path is not None:
+        record = _build_ceiling_record(
+            chunk_name=chunk_name,
+            ceiling_name=ceiling_name,
+            chunk_feats=chunk_feats,
+            ceiling_feats=ceiling_feats,
+            deltas=deltas,
+            red_flags=red_flags,
+        )
+        record["config"] = {"ceiling_thresholds": CEILING_THRESHOLDS}
+        _write_json(record, save_json_path, label="Ceiling analysis JSON")
+
     return generate_ceiling_report(
         chunk_name=chunk_name,
         ceiling_name=ceiling_name,
@@ -344,6 +546,7 @@ def run_style_compare(
     style_path: str,
     chunk_path: str,
     output_json: bool = False,
+    save_json_path: str | None = None,
 ) -> str:
     """
     Style Gap Analysis pipeline.
@@ -359,9 +562,12 @@ def run_style_compare(
         zcr   — noise/distortion indicator, not mix character
 
     Args:
-        style_path:  Path to the commercial reference audio file.
-        chunk_path:  Path to the Suno chunk audio file to compare.
-        output_json: If True, return a JSON string instead of Markdown.
+        style_path:     Path to the commercial reference audio file.
+        chunk_path:     Path to the Suno chunk audio file to compare.
+        output_json:    If True, return a JSON string instead of Markdown.
+        save_json_path: If set, write a structured analysis JSON to this path
+                        for further processing (e.g. pandas). Independent of
+                        output_json.
 
     Returns:
         str — Markdown style gap report or JSON string.
@@ -430,6 +636,16 @@ def run_style_compare(
             },
             indent=2,
         )
+
+    if save_json_path is not None:
+        record = _build_style_record(
+            chunk_name=chunk_name,
+            style_name=style_name,
+            chunk_feats=chunk_feats,
+            style_feats=style_feats,
+            deltas=deltas,
+        )
+        _write_json(record, save_json_path, label="Style gap analysis JSON")
 
     return generate_style_compare_report(
         chunk_name=chunk_name,
@@ -540,7 +756,10 @@ def _write_summary(results: list[dict]) -> None:
 
 
 def run_batch(
-    reference_path: str, batch_folder: str, output_json: bool = False
+    reference_path: str,
+    batch_folder: str,
+    output_json: bool = False,
+    save_json_path: str | None = None,
 ) -> None:
     """
     Batch pipeline: process all .mp3 / .wav files in batch_folder.
@@ -554,6 +773,8 @@ def run_batch(
 
     After all chunks:
         Writes reports/summary.md sorted worst-first.
+        If save_json_path is set, writes a single aggregate JSON file containing
+        all chunk records plus summary statistics — suitable for pd.DataFrame().
 
     Stop condition (plan Phase 4):
         If more than one file fails, a prominent warning is printed to stderr.
@@ -563,6 +784,8 @@ def run_batch(
         reference_path: Path to the reference audio file (WAV or MP3).
         batch_folder:   Path to folder containing chunk audio files.
         output_json:    If True, write .json reports instead of .md.
+        save_json_path: If set, write an aggregate analysis JSON for all chunks
+                        to this path (e.g. pandas). Independent of output_json.
     """
     # -- Validate inputs -----------------------------------------------------
     if not os.path.isfile(reference_path):
@@ -599,6 +822,7 @@ def run_batch(
 
     # -- Process each chunk --------------------------------------------------
     results: list[dict] = []
+    analysis_records: list[dict] = []  # for --save-json
     error_count = 0
 
     for i, chunk_path in enumerate(audio_files, start=1):
@@ -612,6 +836,16 @@ def run_batch(
         try:
             analysis = analyze_chunk(chunk_path, ref_profile)
             score = score_chunk(analysis, THRESHOLDS, WEIGHTS)
+
+            if save_json_path is not None:
+                analysis_records.append(
+                    _build_qa_record(
+                        chunk_name=chunk_name,
+                        reference_name=os.path.basename(reference_path),
+                        analysis=analysis,
+                        score=score,
+                    )
+                )
 
             if output_json:
                 report_str = json.dumps(
@@ -671,6 +905,43 @@ def run_batch(
                     "error": error_msg,
                 }
             )
+            if save_json_path is not None:
+                # Add a structurally-aligned error entry for clean pandas representation
+                analysis_records.append(
+                    {
+                        "mode": "qa",
+                        "chunk_name": chunk_name,
+                        "reference_name": os.path.basename(reference_path),
+                        "consistency_score": None,
+                        "error": error_msg,
+                        "flagged_count": 0,
+                        "flagged_features": [],
+                        "features": {},
+                        "mfcc": {},
+                    }
+                )
+
+    # -- Aggregate JSON (--save-json) ----------------------------------------
+    if save_json_path is not None and analysis_records:
+        scores = [
+            r["consistency_score"] for r in analysis_records if r.get("error") is None
+        ]
+        batch_record = {
+            "mode": "qa_batch",
+            "reference_name": os.path.basename(reference_path),
+            "batch_folder": os.path.abspath(batch_folder),
+            "summary": {
+                "total_files": len(audio_files),
+                "processed": len(scores),
+                "errors": error_count,
+                "score_mean": round(sum(scores) / len(scores), 2) if scores else None,
+                "score_min": round(min(scores), 2) if scores else None,
+                "score_max": round(max(scores), 2) if scores else None,
+            },
+            "chunks": analysis_records,
+            "config": {"thresholds": THRESHOLDS, "weights": WEIGHTS},
+        }
+        _write_json(batch_record, save_json_path, label="Batch analysis JSON")
 
     # -- Stop condition (plan Phase 4) ---------------------------------------
     if error_count > 1:
@@ -719,8 +990,11 @@ Examples:
   # Single chunk — save report to file
   python main.py --reference happy_accident.mp3 --chunk chunk_01.mp3 --output reports/chunk_01_report.md
 
-  # Single chunk — JSON output
+  # Single chunk — JSON output (swaps markdown format)
   python main.py --reference happy_accident.mp3 --chunk chunk_01.mp3 --json
+
+  # Single chunk — save structured data independently to a JSON file (pandas integration)
+  python main.py --reference happy_accident.mp3 --chunk chunk_01.mp3 --save-json
 
   # Prompt debug mode
   python main.py --reference happy_accident.mp3 --chunk new_gen.mp3 --mode prompt-debug
@@ -730,6 +1004,9 @@ Examples:
 
   # Batch mode — JSON reports
   python main.py --reference happy_accident.mp3 --batch ./chunks/ --json
+
+  # Batch mode — export all pipeline scores and raw deltas to summary JSON file
+  python main.py --reference happy_accident.mp3 --batch ./chunks/ --save-json
 
   # Ceiling analysis — production hygiene red-flag check (Phase 6)
   python main.py --ceiling elisa_maktooba_leek.mp3 --chunk chunk_01.mp3
@@ -807,6 +1084,19 @@ Examples:
         action="store_true",
         help="[Single mode only] Separate chunk into stems and append raw stem metrics to report.",
     )
+    parser.add_argument(
+        "--save-json",
+        nargs="?",
+        const=_SAVE_JSON_DEFAULT,
+        default=None,
+        metavar="FILE",
+        help=(
+            "Save full structured analysis data to FILE as JSON for further analysis "
+            "(e.g. pandas). If FILE is omitted, defaults to 'results.json' "
+            "(batch: 'reports/batch_results.json'). "
+            "Independent of --json — both can be used together."
+        ),
+    )
 
     args = parser.parse_args()
 
@@ -851,6 +1141,11 @@ Examples:
             )
             sys.exit(1)
 
+    # -- Resolve save-json defaults ------------------------------------------
+    save_json_path = args.save_json
+    if save_json_path == _SAVE_JSON_DEFAULT and args.batch:
+        save_json_path = os.path.join(_REPORTS_DIR, "batch_results.json")
+
     # -- Ceiling mode (Phase 6) ----------------------------------------------
     if has_ceiling:
         if args.batch:
@@ -878,7 +1173,9 @@ Examples:
         )
         print(f"{'='*64}\n", file=sys.stderr)
 
-        report = run_ceiling(args.ceiling, args.chunk, args.json)
+        report = run_ceiling(
+            args.ceiling, args.chunk, args.json, save_json_path=save_json_path
+        )
 
         if args.output:
             with open(args.output, "w", encoding="utf-8") as fh:
@@ -915,7 +1212,9 @@ Examples:
         )
         print(f"{'='*64}\n", file=sys.stderr)
 
-        report = run_style_compare(args.style_compare, args.chunk, args.json)
+        report = run_style_compare(
+            args.style_compare, args.chunk, args.json, save_json_path=save_json_path
+        )
 
         if args.output:
             with open(args.output, "w", encoding="utf-8") as fh:
@@ -942,7 +1241,7 @@ Examples:
                 "Run single-chunk mode for prompt debugging.",
                 file=sys.stderr,
             )
-        run_batch(args.reference, args.batch, args.json)
+        run_batch(args.reference, args.batch, args.json, save_json_path=save_json_path)
         return
 
     # -- Single mode (Phase 3 / 5 logic) ------------------------------------
@@ -966,6 +1265,7 @@ Examples:
         output_json=args.json,
         prompt_debug=is_prompt_debug,
         use_stems=args.stems,
+        save_json_path=save_json_path,
     )
 
     # Phase 3 stop condition (plan Section 3, Task 3.3)
