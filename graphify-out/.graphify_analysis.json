@@ -1,0 +1,505 @@
+{
+  "communities": {
+    "0": [
+      "src_main",
+      "src_main_build_ceiling_record",
+      "src_main_build_qa_record",
+      "src_main_build_style_record",
+      "src_main_collect_audio_files",
+      "src_main_load_or_build_reference",
+      "src_main_main",
+      "src_main_rationale_1",
+      "src_main_rationale_111",
+      "src_main_rationale_171",
+      "src_main_rationale_211",
+      "src_main_rationale_238",
+      "src_main_rationale_251",
+      "src_main_rationale_294",
+      "src_main_rationale_339",
+      "src_main_rationale_433",
+      "src_main_rationale_551",
+      "src_main_rationale_660",
+      "src_main_rationale_675",
+      "src_main_rationale_764",
+      "src_main_run_batch",
+      "src_main_run_ceiling",
+      "src_main_run_single",
+      "src_main_run_style_compare",
+      "src_main_separate_stems",
+      "src_main_write_json",
+      "src_main_write_summary",
+      "src_profiler",
+      "src_profiler_analyze_chunk",
+      "src_profiler_build_reference_profile",
+      "src_profiler_load_reference_profile",
+      "src_profiler_rationale_1",
+      "src_profiler_rationale_27",
+      "src_profiler_rationale_58",
+      "src_profiler_rationale_81",
+      "tests_test_main",
+      "tests_test_main_rationale_182",
+      "tests_test_main_rationale_224",
+      "tests_test_main_rationale_237",
+      "tests_test_main_rationale_252",
+      "tests_test_main_rationale_278",
+      "tests_test_main_rationale_52",
+      "tests_test_main_rationale_95",
+      "tests_test_main_test_build_ceiling_record_mode_is_ceiling",
+      "tests_test_main_test_build_qa_record_has_required_keys",
+      "tests_test_main_test_build_style_record_mode_is_style_compare",
+      "tests_test_main_test_cache_hit_skips_rebuild",
+      "tests_test_main_test_cache_miss_on_sr_mismatch",
+      "tests_test_main_test_main_cli_scenarios",
+      "tests_test_main_test_mutual_exclusion_reference_and_ceiling",
+      "tests_test_main_test_no_mode_flag_exits",
+      "tests_test_main_test_run_batch_end_to_end",
+      "tests_test_main_test_run_ceiling_end_to_end",
+      "tests_test_main_test_run_single_returns_report_and_score",
+      "tests_test_main_test_run_single_stop_condition_score_below_50",
+      "tests_test_main_test_run_style_compare_end_to_end",
+      "tests_test_main_test_stems_with_batch_exits"
+    ],
+    "1": [
+      "src_config",
+      "src_config_rationale_1",
+      "src_scorer",
+      "src_scorer_rationale_1",
+      "src_scorer_rationale_32",
+      "src_scorer_score_chunk",
+      "tests_conftest_make_analysis_fn",
+      "tests_test_scorer",
+      "tests_test_scorer_rationale_187",
+      "tests_test_scorer_test_at_exactly_threshold_no_penalty",
+      "tests_test_scorer_test_capped_penalty_at_two_times",
+      "tests_test_scorer_test_capped_penalty_not_exceeded",
+      "tests_test_scorer_test_disabled_feature_excluded_from_total_weight",
+      "tests_test_scorer_test_disabled_feature_marked_in_scored_features",
+      "tests_test_scorer_test_disabled_feature_never_flagged",
+      "tests_test_scorer_test_disabled_threshold_no_zero_division",
+      "tests_test_scorer_test_flagged_features_list_is_subset_of_all_features",
+      "tests_test_scorer_test_just_above_threshold_small_penalty",
+      "tests_test_scorer_test_max_penalty_all_active_features_flagged",
+      "tests_test_scorer_test_mfcc_distance_is_scored_not_mfcc_deltas",
+      "tests_test_scorer_test_no_flags_when_all_within_threshold",
+      "tests_test_scorer_test_score_decreases_as_delta_increases",
+      "tests_test_scorer_test_score_is_float",
+      "tests_test_scorer_test_score_range_is_0_to_100",
+      "tests_test_scorer_test_scorer_main_execution",
+      "tests_test_scorer_test_single_feature_flagged_correctly",
+      "tests_test_scorer_test_three_times_threshold_scores_0",
+      "tests_test_scorer_test_total_weight_zero_returns_100",
+      "tests_test_scorer_test_zero_delta_scores_100",
+      "tests_test_scorer_test_zero_weight_feature_does_not_affect_score"
+    ],
+    "2": [
+      "ndarray",
+      "src_extractor",
+      "src_extractor_band_absolute_power",
+      "src_extractor_band_energy_fraction",
+      "src_extractor_extract_vocal_stem_features",
+      "src_extractor_rationale_1",
+      "src_extractor_rationale_234",
+      "src_extractor_rationale_44",
+      "src_extractor_rationale_78",
+      "tests_test_extractor",
+      "tests_test_extractor_rationale_242",
+      "tests_test_extractor_test_extract_vocal_stem_features_degenerate_cases",
+      "tests_test_extractor_test_extract_vocal_stem_features_runs_without_crashing",
+      "tests_test_extractor_test_extractor_main_execution",
+      "tests_test_extractor_testbandabsolutepower",
+      "tests_test_extractor_testbandabsolutepower_test_not_normalised",
+      "tests_test_extractor_testbandabsolutepower_test_positive_value_for_signal_in_band",
+      "tests_test_extractor_testbandabsolutepower_test_returns_zero_for_silent_signal",
+      "tests_test_extractor_testbandabsolutepower_test_returns_zero_no_bins_out_of_bounds",
+      "tests_test_extractor_testbandenergyfraction",
+      "tests_test_extractor_testbandenergyfraction_test_pure_tone_in_band_has_high_fraction",
+      "tests_test_extractor_testbandenergyfraction_test_pure_tone_outside_band_has_low_fraction",
+      "tests_test_extractor_testbandenergyfraction_test_result_is_in_zero_to_one",
+      "tests_test_extractor_testbandenergyfraction_test_returns_zero_for_silent_signal",
+      "tests_test_extractor_testbandenergyfraction_test_returns_zero_no_bins_out_of_bounds",
+      "tests_test_extractor_testbandenergyfraction_test_returns_zero_when_no_bins_in_range"
+    ],
+    "3": [
+      "readme_cli_batch",
+      "readme_cli_ceiling",
+      "readme_cli_prompt_debug",
+      "readme_cli_reference",
+      "readme_cli_stems",
+      "readme_cli_style_compare",
+      "readme_config_py",
+      "readme_consistency_score",
+      "readme_crest_factor_db",
+      "readme_extractor_py",
+      "readme_feature_extraction",
+      "readme_lufs",
+      "readme_main_py",
+      "readme_profiler_py",
+      "readme_reference_profile_json",
+      "readme_reporter_py",
+      "readme_reports",
+      "readme_rms",
+      "readme_scorer_py",
+      "readme_scoring_formula",
+      "readme_thresholds",
+      "readme_weights"
+    ],
+    "4": [
+      "src_reporter",
+      "src_reporter_generate_prompt_debug_report",
+      "src_reporter_get_flag_label",
+      "src_reporter_rationale_1",
+      "src_reporter_rationale_114",
+      "src_reporter_rationale_364",
+      "src_reporter_rationale_481",
+      "src_reporter_rationale_613",
+      "src_reporter_rationale_802",
+      "src_reporter_section_feature_table",
+      "src_reporter_section_flagged_deviations",
+      "src_reporter_section_header",
+      "src_reporter_section_llm_summary",
+      "src_reporter_section_mfcc_detail",
+      "src_reporter_section_prompt_implications",
+      "src_reporter_section_stem_table",
+      "tests_test_profiler_test_get_flag_label",
+      "tests_test_reporter_test_get_flag_label"
+    ],
+    "5": [
+      "src_extractor_extract_features",
+      "src_extractor_rationale_110",
+      "tests_test_extractor_testextractfeatures",
+      "tests_test_extractor_testextractfeatures_test_band_energies_in_unit_interval",
+      "tests_test_extractor_testextractfeatures_test_crest_factor_db_formula",
+      "tests_test_extractor_testextractfeatures_test_crest_factor_db_is_non_negative",
+      "tests_test_extractor_testextractfeatures_test_determinism_same_file_same_result",
+      "tests_test_extractor_testextractfeatures_test_extract_features_tempo_exception",
+      "tests_test_extractor_testextractfeatures_test_lufs_is_negative",
+      "tests_test_extractor_testextractfeatures_test_mfcc_has_13_coefficients",
+      "tests_test_extractor_testextractfeatures_test_mono_stereo_width_is_zero",
+      "tests_test_extractor_testextractfeatures_test_returns_all_12_keys",
+      "tests_test_extractor_testextractfeatures_test_rms_is_global_waveform_rms",
+      "tests_test_extractor_testextractfeatures_test_rms_is_positive_for_sine",
+      "tests_test_extractor_testextractfeatures_test_silent_file_crest_factor_is_zero",
+      "tests_test_extractor_testextractfeatures_test_stereo_stereo_width_is_positive",
+      "tests_test_extractor_testextractfeatures_test_target_sr_constant"
+    ],
+    "6": [
+      "tests_test_config",
+      "tests_test_config_rationale_90",
+      "tests_test_config_test_all_thresholds_are_non_negative",
+      "tests_test_config_test_all_weights_are_non_negative",
+      "tests_test_config_test_ceiling_excludes_high_shelf",
+      "tests_test_config_test_ceiling_excludes_stereo_width",
+      "tests_test_config_test_ceiling_excludes_tempo",
+      "tests_test_config_test_ceiling_thresholds_all_positive",
+      "tests_test_config_test_ceiling_thresholds_is_non_empty_dict",
+      "tests_test_config_test_integrity_check_fires_on_extra_threshold_key",
+      "tests_test_config_test_integrity_check_fires_on_extra_weight_key",
+      "tests_test_config_test_integrity_check_fires_on_mismatched_keys",
+      "tests_test_config_test_mfcc_distance_threshold_is_sane",
+      "tests_test_config_test_stereo_width_threshold_is_zero",
+      "tests_test_config_test_tempo_threshold_is_large",
+      "tests_test_config_test_tempo_weight_is_zero",
+      "tests_test_config_test_thresholds_and_weights_have_same_keys"
+    ],
+    "7": [
+      "src_reporter_generate_report",
+      "src_reporter_rationale_766",
+      "tests_conftest_make_score_fn",
+      "tests_test_profiler_test_generate_report_flagged_feature_shown",
+      "tests_test_profiler_test_verdict_band",
+      "tests_test_reporter",
+      "tests_test_reporter_test_generate_report_contains_chunk_name",
+      "tests_test_reporter_test_generate_report_contains_score",
+      "tests_test_reporter_test_generate_report_flagged_feature_shown",
+      "tests_test_reporter_test_generate_report_has_diagnostic_summary_section",
+      "tests_test_reporter_test_generate_report_has_feature_comparison_section",
+      "tests_test_reporter_test_generate_report_has_flagged_deviations_section",
+      "tests_test_reporter_test_generate_report_has_mfcc_detail_section",
+      "tests_test_reporter_test_generate_report_no_flags_shows_pass_text",
+      "tests_test_reporter_test_generate_report_returns_string",
+      "tests_test_reporter_test_verdict_band"
+    ],
+    "8": [
+      "tests_conftest",
+      "tests_conftest_make_analysis",
+      "tests_conftest_make_score",
+      "tests_conftest_mono_sine_wav",
+      "tests_conftest_perfect_score",
+      "tests_conftest_rationale_26",
+      "tests_conftest_rationale_37",
+      "tests_conftest_rationale_50",
+      "tests_conftest_rationale_64",
+      "tests_conftest_rationale_96",
+      "tests_conftest_silent_wav",
+      "tests_conftest_stereo_sine_wav",
+      "tests_conftest_tmp_audio_dir",
+      "tests_conftest_zero_analysis"
+    ],
+    "9": [
+      "src_reporter_generate_style_compare_report",
+      "src_reporter_get_style_compare_note",
+      "src_reporter_rationale_1264",
+      "src_reporter_rationale_892",
+      "tests_test_profiler_test_generate_style_compare_report_returns_string",
+      "tests_test_profiler_test_generate_style_report_direction_arrows",
+      "tests_test_profiler_test_generate_style_report_has_all_required_sections",
+      "tests_test_profiler_test_generate_style_report_no_score_or_verdict",
+      "tests_test_profiler_test_get_style_compare_note",
+      "tests_test_reporter_test_generate_style_compare_report_returns_string",
+      "tests_test_reporter_test_generate_style_report_direction_arrows",
+      "tests_test_reporter_test_generate_style_report_has_all_required_sections",
+      "tests_test_reporter_test_generate_style_report_no_score_or_verdict"
+    ],
+    "10": [
+      "src_reporter_generate_ceiling_report",
+      "src_reporter_get_ceiling_flag_label",
+      "src_reporter_rationale_1051",
+      "src_reporter_rationale_960",
+      "tests_test_profiler_test_generate_ceiling_report_contains_flag_name_when_flagged",
+      "tests_test_profiler_test_generate_ceiling_report_contains_no_violations_text_when_clean",
+      "tests_test_profiler_test_generate_ceiling_report_returns_string",
+      "tests_test_profiler_test_get_ceiling_flag_label",
+      "tests_test_reporter_test_generate_ceiling_report_contains_flag_name_when_flagged",
+      "tests_test_reporter_test_generate_ceiling_report_contains_no_violations_text_when_clean",
+      "tests_test_reporter_test_generate_ceiling_report_returns_string"
+    ],
+    "11": [
+      "tests_test_profiler",
+      "tests_test_profiler_rationale_505",
+      "tests_test_profiler_test_generate_report_contains_chunk_name",
+      "tests_test_profiler_test_generate_report_contains_score",
+      "tests_test_profiler_test_generate_report_has_diagnostic_summary_section",
+      "tests_test_profiler_test_generate_report_has_feature_comparison_section",
+      "tests_test_profiler_test_generate_report_has_flagged_deviations_section",
+      "tests_test_profiler_test_generate_report_has_mfcc_detail_section",
+      "tests_test_profiler_test_generate_report_no_flags_shows_pass_text",
+      "tests_test_profiler_test_generate_report_returns_string",
+      "tests_test_profiler_test_generate_report_with_stem_data"
+    ],
+    "12": [
+      "src_reporter_fmt_delta",
+      "src_reporter_rationale_201",
+      "tests_test_profiler_test_fmt_delta_negative_has_minus_sign",
+      "tests_test_profiler_test_fmt_delta_positive_has_plus_sign",
+      "tests_test_profiler_test_fmt_delta_zero_has_plus_sign",
+      "tests_test_reporter_test_fmt_delta_negative_has_minus_sign",
+      "tests_test_reporter_test_fmt_delta_positive_has_plus_sign",
+      "tests_test_reporter_test_fmt_delta_zero_has_plus_sign"
+    ],
+    "13": [
+      "src_reporter_fmt",
+      "src_reporter_rationale_196",
+      "tests_test_profiler_test_fmt_hz_one_decimal",
+      "tests_test_profiler_test_fmt_lufs_two_decimal_places",
+      "tests_test_reporter_test_fmt_hz_one_decimal",
+      "tests_test_reporter_test_fmt_lufs_two_decimal_places"
+    ],
+    "14": [
+      "src_reporter_fmt_delta_with_unit",
+      "src_reporter_rationale_208",
+      "tests_test_profiler_test_fmt_delta_with_unit_appends_hz",
+      "tests_test_profiler_test_fmt_delta_with_unit_strips_empty_unit",
+      "tests_test_reporter_test_fmt_delta_with_unit_appends_hz",
+      "tests_test_reporter_test_fmt_delta_with_unit_strips_empty_unit"
+    ],
+    "15": [
+      "readme_high_shelf"
+    ],
+    "16": [
+      "readme_low_mid_energy"
+    ],
+    "17": [
+      "readme_mfcc"
+    ],
+    "18": [
+      "readme_presence_band"
+    ],
+    "19": [
+      "readme_spectral_centroid"
+    ],
+    "20": [
+      "readme_spectral_rolloff"
+    ],
+    "21": [
+      "readme_stereo_width"
+    ],
+    "22": [
+      "readme_tempo"
+    ],
+    "23": [
+      "readme_zcr"
+    ]
+  },
+  "cohesion": {
+    "0": 0.05451127819548872,
+    "1": 0.14482758620689656,
+    "2": 0.12,
+    "3": 0.09090909090909091,
+    "4": 0.16993464052287582,
+    "5": 0.20588235294117646,
+    "6": 0.11764705882352941,
+    "7": 0.225,
+    "8": 0.16483516483516483,
+    "9": 0.15384615384615385,
+    "10": 0.18181818181818182,
+    "11": 0.18181818181818182,
+    "12": 0.25,
+    "13": 0.3333333333333333,
+    "14": 0.3333333333333333,
+    "15": 1.0,
+    "16": 1.0,
+    "17": 1.0,
+    "18": 1.0,
+    "19": 1.0,
+    "20": 1.0,
+    "21": 1.0,
+    "22": 1.0,
+    "23": 1.0
+  },
+  "gods": [
+    {
+      "id": "src_reporter_generate_report",
+      "label": "generate_report()",
+      "degree": 31
+    },
+    {
+      "id": "src_scorer_score_chunk",
+      "label": "score_chunk()",
+      "degree": 24
+    },
+    {
+      "id": "src_extractor_extract_features",
+      "label": "extract_features()",
+      "degree": 21
+    },
+    {
+      "id": "tests_conftest_make_analysis_fn",
+      "label": "make_analysis_fn()",
+      "degree": 18
+    },
+    {
+      "id": "src_main_run_single",
+      "label": "run_single()",
+      "degree": 15
+    },
+    {
+      "id": "tests_test_extractor_testextractfeatures",
+      "label": "TestExtractFeatures",
+      "degree": 15
+    },
+    {
+      "id": "src_main_run_batch",
+      "label": "run_batch()",
+      "degree": 12
+    },
+    {
+      "id": "src_reporter_generate_style_compare_report",
+      "label": "generate_style_compare_report()",
+      "degree": 12
+    },
+    {
+      "id": "readme_main_py",
+      "label": "main.py",
+      "degree": 12
+    },
+    {
+      "id": "src_extractor_band_energy_fraction",
+      "label": "_band_energy_fraction()",
+      "degree": 10
+    }
+  ],
+  "surprises": [
+    {
+      "source": "test_generate_report_contains_chunk_name()",
+      "target": "generate_report()",
+      "source_files": [
+        "tests/test_profiler.py",
+        "src/reporter.py"
+      ],
+      "confidence": "INFERRED",
+      "relation": "calls",
+      "why": "inferred connection - not explicitly stated in source; connects across different repos/directories; bridges separate communities; peripheral node `test_generate_report_contains_chunk_name()` unexpectedly reaches hub `generate_report()`"
+    },
+    {
+      "source": "test_generate_report_contains_score()",
+      "target": "generate_report()",
+      "source_files": [
+        "tests/test_profiler.py",
+        "src/reporter.py"
+      ],
+      "confidence": "INFERRED",
+      "relation": "calls",
+      "why": "inferred connection - not explicitly stated in source; connects across different repos/directories; bridges separate communities; peripheral node `test_generate_report_contains_score()` unexpectedly reaches hub `generate_report()`"
+    },
+    {
+      "source": "test_generate_report_has_diagnostic_summary_section()",
+      "target": "generate_report()",
+      "source_files": [
+        "tests/test_profiler.py",
+        "src/reporter.py"
+      ],
+      "confidence": "INFERRED",
+      "relation": "calls",
+      "why": "inferred connection - not explicitly stated in source; connects across different repos/directories; bridges separate communities; peripheral node `test_generate_report_has_diagnostic_summary_section()` unexpectedly reaches hub `generate_report()`"
+    },
+    {
+      "source": "test_generate_report_has_feature_comparison_section()",
+      "target": "generate_report()",
+      "source_files": [
+        "tests/test_profiler.py",
+        "src/reporter.py"
+      ],
+      "confidence": "INFERRED",
+      "relation": "calls",
+      "why": "inferred connection - not explicitly stated in source; connects across different repos/directories; bridges separate communities; peripheral node `test_generate_report_has_feature_comparison_section()` unexpectedly reaches hub `generate_report()`"
+    },
+    {
+      "source": "test_generate_report_has_flagged_deviations_section()",
+      "target": "generate_report()",
+      "source_files": [
+        "tests/test_profiler.py",
+        "src/reporter.py"
+      ],
+      "confidence": "INFERRED",
+      "relation": "calls",
+      "why": "inferred connection - not explicitly stated in source; connects across different repos/directories; bridges separate communities; peripheral node `test_generate_report_has_flagged_deviations_section()` unexpectedly reaches hub `generate_report()`"
+    }
+  ],
+  "questions": [
+    {
+      "type": "bridge_node",
+      "question": "Why does `run_single()` connect `main.py` to `score_chunk`, `_band_energy_fraction`, `reporter.py`, `extract_features`, `generate_report`?",
+      "why": "High betweenness centrality (0.173) - this node is a cross-community bridge."
+    },
+    {
+      "type": "bridge_node",
+      "question": "Why does `generate_report()` connect `generate_report` to `main.py`, `test_profiler.py`, `reporter.py`?",
+      "why": "High betweenness centrality (0.158) - this node is a cross-community bridge."
+    },
+    {
+      "type": "bridge_node",
+      "question": "Why does `extract_features()` connect `extract_features` to `main.py`, `_band_energy_fraction`?",
+      "why": "High betweenness centrality (0.126) - this node is a cross-community bridge."
+    },
+    {
+      "type": "verify_inferred",
+      "question": "Are the 23 inferred relationships involving `generate_report()` (e.g. with `run_batch()` and `run_single()`) actually correct?",
+      "why": "`generate_report()` has 23 INFERRED edges - model-reasoned connections that need verification."
+    },
+    {
+      "type": "verify_inferred",
+      "question": "Are the 22 inferred relationships involving `score_chunk()` (e.g. with `run_batch()` and `run_single()`) actually correct?",
+      "why": "`score_chunk()` has 22 INFERRED edges - model-reasoned connections that need verification."
+    },
+    {
+      "type": "verify_inferred",
+      "question": "Are the 18 inferred relationships involving `extract_features()` (e.g. with `run_ceiling()` and `run_single()`) actually correct?",
+      "why": "`extract_features()` has 18 INFERRED edges - model-reasoned connections that need verification."
+    },
+    {
+      "type": "verify_inferred",
+      "question": "Are the 17 inferred relationships involving `make_analysis_fn()` (e.g. with `make_analysis()` and `test_generate_report_flagged_feature_shown()`) actually correct?",
+      "why": "`make_analysis_fn()` has 17 INFERRED edges - model-reasoned connections that need verification."
+    }
+  ]
+}
