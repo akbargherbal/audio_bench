@@ -37,10 +37,6 @@ B_PATH = "04-B.mp3"
 print("Repo root resolved to:", REPO_ROOT)
 ```
 
-```text
-Repo root resolved to: /home/claude/audio_bench
-```
-
 ## 3. Concept: LUFS (Loudness Units relative to Full Scale)
 
 LUFS is a standardized measure of *perceived* loudness, not peak amplitude. Unlike a simple peak or RMS reading, the LUFS algorithm (ITU-R BS.1770) applies a filter that approximates how the human ear weights frequencies, then integrates over time. It's the metric streaming platforms (Spotify, YouTube) use for loudness normalization.
@@ -62,11 +58,7 @@ print(f"B: {lufs_b:.2f} LUFS")
 print(f"Delta (B - A): {lufs_b - lufs_a:+.2f} LUFS")
 ```
 
-```text
-A: -12.32 LUFS
-B: -12.86 LUFS
-Delta (B - A): -0.55 LUFS
-```
+*(Sample values from this session: A = -12.32 LUFS, B = -12.86 LUFS, delta = -0.55 LUFS. Re-running the cell above will regenerate these directly below it.)*
 
 B sits about half a loudness-unit quieter than A across the whole track. On its own this is a small, easily-missed gap — the interesting part shows up once we stop looking at whole-track averages (Section 6).
 
@@ -103,11 +95,7 @@ print(f"B: {width_b:.3f}")
 print(f"Delta (B - A): {width_b - width_a:+.3f}")
 ```
 
-```text
-A: 0.427
-B: 0.418
-Delta (B - A): -0.009
-```
+*(Sample values: A = 0.427, B = 0.418, delta = -0.009 — the cell above regenerates these.)*
 
 Whole-track, B is actually very slightly *narrower* than A — nearly a tie. This is the number that misled the first pass of this lab. It only becomes interesting once we stop averaging over 4+ minutes and isolate the vocal entrance (Section 6).
 
@@ -132,11 +120,7 @@ print(f"Low-mid (200-500Hz) B: {low_mid_b:.4f}")
 print(f"Delta (B - A): {low_mid_b - low_mid_a:+.4f}")
 ```
 
-```text
-Low-mid (200-500Hz) A: 0.1234
-Low-mid (200-500Hz) B: 0.1070
-Delta (B - A): -0.0164
-```
+*(Sample values: A = 0.1234, B = 0.1070, delta = -0.0164 — the cell above regenerates these.)*
 
 Whole-track, B has *less* low-mid energy than A — the opposite of the "boxy" hypothesis. Same trap as stereo width: a single global average across the whole song can hide a short, localized spike. That's the motivation for Section 6.
 
@@ -144,26 +128,19 @@ Whole-track, B has *less* low-mid energy than A — the opposite of the "boxy" h
 
 Before slicing anything, this is what the project's own `--style-compare` mode produces when run against the two full tracks. This mode is designed for exactly this situation: comparing two same-intent renders without assuming either one is "correct."
 
-```bash
-python ../../src/main.py \
-  --style-compare 04-A.mp3 \
-  --chunk 04-B.mp3
+```python
+!python ../../src/main.py --style-compare 04-A.mp3 --chunk 04-B.mp3
 ```
 
-```text
-| Feature                     | Unit | Commercial |     Suno |     Delta | Direction     |
-| ---------------------------- | ---- | ---------- | -------- | --------- | ------------- |
-| LUFS                        | LUFS |     -12.32 |   -12.86 |     -0.55 | down Suno lower  |
-| RMS energy                  |      |   0.165515 | 0.150521 | -0.014995 | down Suno lower  |
-| Crest factor                | dB   |      13.03 |    14.61 |     +1.57 | up Suno higher |
-| Spectral centroid           | Hz   |     3411.5 |   3619.2 |    +207.7 | up Suno higher |
-| Spectral rolloff            | Hz   |     7492.5 |   7820.1 |    +327.6 | up Suno higher |
-| Low-mid energy (200-500 Hz) | frac |   0.123360 | 0.106982 | -0.016379 | down Suno lower  |
-| Presence band (1k-4kHz)     | frac |   0.154432 | 0.176183 | +0.021751 | up Suno higher |
-| High shelf (8kHz+)          | frac |   0.014450 | 0.024666 | +0.010216 | up Suno higher |
-| Stereo width                |      |   0.426831 | 0.417513 | -0.009319 | down Suno lower  |
-| MFCC distance                |      |     0.0000 |   0.0032 |   +0.0032 | up Suno higher |
-```
+Run it — it prints a full markdown briefing (feature table, perceptual notes, and a ready-to-paste LLM briefing block). The headline numbers from this session:
+
+| Feature | Commercial (A) | Suno (B) | Delta |
+|---|---|---|---|
+| LUFS | -12.32 | -12.86 | -0.55 |
+| Spectral centroid (Hz) | 3411.5 | 3619.2 | +207.7 |
+| Low-mid energy (200-500Hz) | 0.1234 | 0.1070 | -0.0164 |
+| Presence band (1k-4kHz) | 0.1544 | 0.1762 | +0.0218 |
+| Stereo width | 0.4268 | 0.4175 | -0.0093 |
 
 **Whole-track, the numbers seem to *contradict* the ear.** B reads as brighter (higher spectral centroid/rolloff), more present (1-4kHz), and *less* muddy (lower low-mid) than A. If clarity were purely about broadband brightness, B should sound cleaner — not A.
 
@@ -173,20 +150,22 @@ This mismatch is the actual lesson here: **a single average over a 4+ minute tra
 
 Using the SRT timestamps as ground truth, three moments were cut out of each file and re-compared in isolation: the vocal's first entrance, and two later lines the human specifically praised/criticized.
 
-```bash
-mkdir -p segments
+> **Note on the commands below:** every `ffmpeg` call uses `-nostdin -loglevel error`. Without `-nostdin`, when several `ffmpeg` calls run back-to-back in one shell script, each one keeps a live read handle on the *same* stdin stream as the script itself. `ffmpeg` polls stdin for interactive keypresses (e.g. `q` to quit) even when running non-interactively, so it can silently consume a few leading bytes of the *next* command's text before that command ever reaches the shell — the shell then tries to execute whatever is left (e.g. `ffmpeg` missing its first 3–4 characters) and fails with `command not found` / exit 127. `-nostdin` tells ffmpeg to never touch stdin at all, which removes the whole failure mode. `-loglevel error` just suppresses ffmpeg's normal wall of codec/container/metadata logging so the notebook output stays readable.
+
+```python
+!mkdir -p segments
 
 # Opening line: "نعُمُّ أُناساً..." — where the human felt A was cleanest
-ffmpeg -y -i 04-A.mp3 -ss 00:00:26 -to 00:00:37 segments/A_opening_vocal.mp3
-ffmpeg -y -i 04-B.mp3 -ss 00:00:32 -to 00:00:43 segments/B_opening_vocal.mp3
+!ffmpeg -nostdin -loglevel error -y -i 04-A.mp3 -ss 00:00:26 -to 00:00:37 segments/A_opening_vocal.mp3
+!ffmpeg -nostdin -loglevel error -y -i 04-B.mp3 -ss 00:00:32 -to 00:00:43 segments/B_opening_vocal.mp3
 
 # "نطاعن ما تراخى الناس عنا" — human noted B's maqam performance was better here
-ffmpeg -y -i 04-A.mp3 -ss 00:00:48 -to 00:00:53 segments/A_nutaein.mp3
-ffmpeg -y -i 04-B.mp3 -ss 00:00:48 -to 00:00:53 segments/B_nutaein.mp3
+!ffmpeg -nostdin -loglevel error -y -i 04-A.mp3 -ss 00:00:48 -to 00:00:53 segments/A_nutaein.mp3
+!ffmpeg -nostdin -loglevel error -y -i 04-B.mp3 -ss 00:00:48 -to 00:00:53 segments/B_nutaein.mp3
 
 # "نجذ رؤوسهم في غير بر"
-ffmpeg -y -i 04-A.mp3 -ss 00:02:58 -to 00:03:03 segments/A_najuzzu.mp3
-ffmpeg -y -i 04-B.mp3 -ss 00:02:52 -to 00:02:57 segments/B_najuzzu.mp3
+!ffmpeg -nostdin -loglevel error -y -i 04-A.mp3 -ss 00:02:58 -to 00:03:03 segments/A_najuzzu.mp3
+!ffmpeg -nostdin -loglevel error -y -i 04-B.mp3 -ss 00:02:52 -to 00:02:57 segments/B_najuzzu.mp3
 ```
 
 ```python
@@ -213,19 +192,7 @@ for label, (path_a, path_b) in segment_pairs.items():
           f"delta(B-A)={feat_b['stereo_width']-feat_a['stereo_width']:+.3f}")
 ```
 
-```text
---- opening_vocal ---
-  low_mid  A=0.141  B=0.257  delta(B-A)=+0.116
-  width    A=0.322  B=0.370  delta(B-A)=+0.048
-
---- nutaein ---
-  low_mid  A=0.129  B=0.048  delta(B-A)=-0.081
-  width    A=0.347  B=0.276  delta(B-A)=-0.070
-
---- najuzzu ---
-  low_mid  A=0.282  B=0.081  delta(B-A)=-0.201
-  width    A=0.318  B=0.298  delta(B-A)=-0.020
-```
+*(Sample results: opening_vocal low_mid delta = +0.116, width delta = +0.048; nutaein low_mid delta = -0.081; najuzzu low_mid delta = -0.201 — the cell above regenerates these.)*
 
 This is the turning point of the lab. **Only at the opening vocal entrance does B show a large low-mid spike (nearly double A's value).** At the other two lines — including the one where the human explicitly praised B's *maqam* phrasing — B is actually *less* boxy than A. The problem isn't a property of B's mix in general. It's localized to one specific moment: the singer's entrance.
 
@@ -233,14 +200,16 @@ This is the turning point of the lab. **Only at the opening vocal entrance does 
 
 To confirm this is a genuine transient event (and not just a coarser artefact of an 11-second window), the opening line was split into its first 2 seconds (the attack) and its remaining ~3 seconds (the sustain/tail).
 
-```bash
-mkdir -p segments/onset_narrow
+Same `-nostdin -loglevel error` reasoning as Section 7 applies here.
 
-ffmpeg -y -i 04-A.mp3 -ss 00:00:32.064 -to 00:00:34.064 segments/onset_narrow/A_onset_2s.mp3
-ffmpeg -y -i 04-B.mp3 -ss 00:00:37.437 -to 00:00:39.437 segments/onset_narrow/B_onset_2s.mp3
+```python
+!mkdir -p segments/onset_narrow
 
-ffmpeg -y -i 04-A.mp3 -ss 00:00:34.064 -to 00:00:36.935 segments/onset_narrow/A_onset_tail.mp3
-ffmpeg -y -i 04-B.mp3 -ss 00:00:39.437 -to 00:00:42.302 segments/onset_narrow/B_onset_tail.mp3
+!ffmpeg -nostdin -loglevel error -y -i 04-A.mp3 -ss 00:00:32.064 -to 00:00:34.064 segments/onset_narrow/A_onset_2s.mp3
+!ffmpeg -nostdin -loglevel error -y -i 04-B.mp3 -ss 00:00:37.437 -to 00:00:39.437 segments/onset_narrow/B_onset_2s.mp3
+
+!ffmpeg -nostdin -loglevel error -y -i 04-A.mp3 -ss 00:00:34.064 -to 00:00:36.935 segments/onset_narrow/A_onset_tail.mp3
+!ffmpeg -nostdin -loglevel error -y -i 04-B.mp3 -ss 00:00:39.437 -to 00:00:42.302 segments/onset_narrow/B_onset_tail.mp3
 ```
 
 ```python
@@ -261,17 +230,7 @@ for label, (path_a, path_b) in onset_pairs.items():
           f"delta(B-A)={feat_b['stereo_width']-feat_a['stereo_width']:+.3f}")
 ```
 
-```text
---- onset_2s (attack) ---
-  LUFS     A=-15.54  B=-18.14  delta(B-A)=-2.60
-  low_mid  A=0.174  B=0.228  delta(B-A)=+0.054
-  width    A=0.329  B=0.659  delta(B-A)=+0.330
-
---- onset_tail (sustain) ---
-  LUFS     A=-15.03  B=-15.39  delta(B-A)=-0.36
-  low_mid  A=0.130  B=0.178  delta(B-A)=+0.048
-  width    A=0.307  B=0.332  delta(B-A)=+0.025
-```
+*(Sample results: onset_2s width delta = +0.330, LUFS delta = -2.60; onset_tail width delta shrinks to +0.025 — the cell above regenerates these.)*
 
 At the literal attack — the first two seconds of the sung phrase — B's stereo width is **nearly double** A's (0.66 vs 0.33), and B sits **2.6 LUFS quieter**. Three seconds later, in the sustain/tail of the same phrase, the width gap has almost fully collapsed (0.33 vs 0.31) and the loudness gap shrinks to 0.36. This confirms the spike is a genuine transient — not a sustained mix characteristic — and it lands exactly where the human's ear flagged a problem.
 
