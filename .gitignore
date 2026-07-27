@@ -1,7 +1,6 @@
 # Node
 node_modules/
 **/node_modules/
-
 **/src/reports/
 
 # Python-generated files
@@ -19,6 +18,9 @@ buhoor_drums_mp3/
 # Output
 *.wav
 *.mp3
-
 config.json
 config.tmp
+
+# لكن: اسمح بملفات الصوت داخل جلسات LABS تحديدًا
+!LABS/**/*.mp3
+!LABS/**/*.wav
