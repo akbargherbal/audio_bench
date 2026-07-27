@@ -16,6 +16,8 @@ This is the classic starting point of this lab series: turn a vague "something's
 
 Both files and their auto-generated transcripts (`04-A.srt`, `04-B.srt`) live in this lab folder. The transcripts double as a cheap "what instrument entered when" log, which turns out to matter later.
 
+
+
 ```python
 import sys
 import os
@@ -37,11 +39,17 @@ B_PATH = "04-B.mp3"
 print("Repo root resolved to:", REPO_ROOT)
 ```
 
+    Repo root resolved to: c:\Users\DELL\Jupyter_Notebooks\TRACK_QA
+    
+
+
 ## 3. Concept: LUFS (Loudness Units relative to Full Scale)
 
 LUFS is a standardized measure of _perceived_ loudness, not peak amplitude. Unlike a simple peak or RMS reading, the LUFS algorithm (ITU-R BS.1770) applies a filter that approximates how the human ear weights frequencies, then integrates over time. It's the metric streaming platforms (Spotify, YouTube) use for loudness normalization.
 
 Two tracks can have identical peak levels but very different LUFS if one has more sustained energy and the other is spikier.
+
+
 
 ```python
 def measure_lufs(filepath: str) -> float:
@@ -57,6 +65,12 @@ print(f"A: {lufs_a:.2f} LUFS")
 print(f"B: {lufs_b:.2f} LUFS")
 print(f"Delta (B - A): {lufs_b - lufs_a:+.2f} LUFS")
 ```
+
+    A: -12.32 LUFS
+    B: -12.86 LUFS
+    Delta (B - A): -0.55 LUFS
+    
+
 
 _(Sample values from this session: A = -12.32 LUFS, B = -12.86 LUFS, delta = -0.55 LUFS. Re-running the cell above will regenerate these directly below it.)_
 
@@ -75,6 +89,8 @@ $$\text{stereo\_width} = \frac{\text{RMS(side)}}{\text{RMS(mid)}}$$
 - A width near **0** means near-mono (everything centered). A width that spikes upward means something wide and decorrelated (often a reverb or a swelling pad/orchestral layer) briefly dominates the mix.
 
 Importantly: **this is a mix/arrangement metric, not a room-acoustics metric.** Suno doesn't simulate a physical room — "plate reverb" in a prompt is an algorithmic effect, not a recording space. A wide stereo image can come from a well-simulated hall _or_ just from stacking wide, decorrelated layers (like an orchestral swell) on top of a vocal. The number tells us _what happened in the signal_, not _why_ it happened — for the "why" we still need to look at the arrangement.
+
+
 
 ```python
 def measure_stereo_width(filepath: str) -> float:
@@ -95,6 +111,12 @@ print(f"B: {width_b:.3f}")
 print(f"Delta (B - A): {width_b - width_a:+.3f}")
 ```
 
+    A: 0.427
+    B: 0.418
+    Delta (B - A): -0.009
+    
+
+
 _(Sample values: A = 0.427, B = 0.418, delta = -0.009 — the cell above regenerates these.)_
 
 Whole-track, B is actually very slightly _narrower_ than A — nearly a tie. This is the number that misled the first pass of this lab. It only becomes interesting once we stop averaging over 4+ minutes and isolate the vocal entrance (Section 6).
@@ -104,6 +126,8 @@ Whole-track, B is actually very slightly _narrower_ than A — nearly a tie. Thi
 "Boxy" is a common but vague engineering complaint. It usually points to a buildup of energy in the **low-mid range, roughly 200–500 Hz** — the range that carries vocal body/warmth in healthy amounts, but reads as muffled, congested, or like the source is trapped in a small hard-walled space when it builds up too much.
 
 `audio_bench` measures this as a **fraction of total spectral power** (not absolute energy), so it's comparable across clips of different length or loudness:
+
+
 
 ```python
 def measure_band_fraction(filepath: str, f_low: float, f_high: float) -> float:
@@ -120,6 +144,12 @@ print(f"Low-mid (200-500Hz) B: {low_mid_b:.4f}")
 print(f"Delta (B - A): {low_mid_b - low_mid_a:+.4f}")
 ```
 
+    Low-mid (200-500Hz) A: 0.1234
+    Low-mid (200-500Hz) B: 0.1070
+    Delta (B - A): -0.0164
+    
+
+
 _(Sample values: A = 0.1234, B = 0.1070, delta = -0.0164 — the cell above regenerates these.)_
 
 Whole-track, B has _less_ low-mid energy than A — the opposite of the "boxy" hypothesis. Same trap as stereo width: a single global average across the whole song can hide a short, localized spike. That's the motivation for Section 6.
@@ -128,9 +158,16 @@ Whole-track, B has _less_ low-mid energy than A — the opposite of the "boxy" h
 
 Before slicing anything, this is what the project's own `--style-compare` mode produces when run against the two full tracks. This mode is designed for exactly this situation: comparing two same-intent renders without assuming either one is "correct."
 
+
+
 ```python
 !python ../../src/main.py --style-compare 04-A.mp3 --chunk 04-B.mp3
 ```
+
+    'python' is not recognized as an internal or external command,
+    operable program or batch file.
+    
+
 
 Run it — it prints a full markdown briefing (feature table, perceptual notes, and a ready-to-paste LLM briefing block). The headline numbers from this session:
 
@@ -152,6 +189,8 @@ Using the SRT timestamps as ground truth, three moments were cut out of each fil
 
 > **Note on the commands below:** every `ffmpeg` call uses `-nostdin -loglevel error`. Without `-nostdin`, when several `ffmpeg` calls run back-to-back in one shell script, each one keeps a live read handle on the _same_ stdin stream as the script itself. `ffmpeg` polls stdin for interactive keypresses (e.g. `q` to quit) even when running non-interactively, so it can silently consume a few leading bytes of the _next_ command's text before that command ever reaches the shell — the shell then tries to execute whatever is left (e.g. `ffmpeg` missing its first 3–4 characters) and fails with `command not found` / exit 127. `-nostdin` tells ffmpeg to never touch stdin at all, which removes the whole failure mode. `-loglevel error` just suppresses ffmpeg's normal wall of codec/container/metadata logging so the notebook output stays readable.
 
+
+
 ```python
 !mkdir -p segments
 
@@ -167,6 +206,23 @@ Using the SRT timestamps as ground truth, three moments were cut out of each fil
 !ffmpeg -nostdin -loglevel error -y -i 04-A.mp3 -ss 00:02:58 -to 00:03:03 segments/A_najuzzu.mp3
 !ffmpeg -nostdin -loglevel error -y -i 04-B.mp3 -ss 00:02:52 -to 00:02:57 segments/B_najuzzu.mp3
 ```
+
+    A subdirectory or file segments already exists.
+    Error occurred while processing: segments.
+    'ffmpeg' is not recognized as an internal or external command,
+    operable program or batch file.
+    'ffmpeg' is not recognized as an internal or external command,
+    operable program or batch file.
+    'ffmpeg' is not recognized as an internal or external command,
+    operable program or batch file.
+    'ffmpeg' is not recognized as an internal or external command,
+    operable program or batch file.
+    'ffmpeg' is not recognized as an internal or external command,
+    operable program or batch file.
+    'ffmpeg' is not recognized as an internal or external command,
+    operable program or batch file.
+    
+
 
 ```python
 segment_pairs = {
@@ -192,6 +248,18 @@ for label, (path_a, path_b) in segment_pairs.items():
           f"delta(B-A)={feat_b['stereo_width']-feat_a['stereo_width']:+.3f}")
 ```
 
+    --- opening_vocal ---
+      low_mid  A=0.141  B=0.257  delta(B-A)=+0.116
+      width    A=0.322  B=0.370  delta(B-A)=+0.048
+    --- nutaein ---
+      low_mid  A=0.129  B=0.048  delta(B-A)=-0.081
+      width    A=0.347  B=0.276  delta(B-A)=-0.070
+    --- najuzzu ---
+      low_mid  A=0.282  B=0.081  delta(B-A)=-0.201
+      width    A=0.318  B=0.298  delta(B-A)=-0.020
+    
+
+
 _(Sample results: opening_vocal low_mid delta = +0.116, width delta = +0.048; nutaein low_mid delta = -0.081; najuzzu low_mid delta = -0.201 — the cell above regenerates these.)_
 
 This is the turning point of the lab. **Only at the opening vocal entrance does B show a large low-mid spike (nearly double A's value).** At the other two lines — including the one where the human explicitly praised B's _maqam_ phrasing — B is actually _less_ boxy than A. The problem isn't a property of B's mix in general. It's localized to one specific moment: the singer's entrance.
@@ -202,6 +270,8 @@ To confirm this is a genuine transient event (and not just a coarser artefact of
 
 Same `-nostdin -loglevel error` reasoning as Section 7 applies here.
 
+
+
 ```python
 !mkdir -p segments/onset_narrow
 
@@ -211,6 +281,18 @@ Same `-nostdin -loglevel error` reasoning as Section 7 applies here.
 !ffmpeg -nostdin -loglevel error -y -i 04-A.mp3 -ss 00:00:34.064 -to 00:00:36.935 segments/onset_narrow/A_onset_tail.mp3
 !ffmpeg -nostdin -loglevel error -y -i 04-B.mp3 -ss 00:00:39.437 -to 00:00:42.302 segments/onset_narrow/B_onset_tail.mp3
 ```
+
+    The syntax of the command is incorrect.
+    'ffmpeg' is not recognized as an internal or external command,
+    operable program or batch file.
+    'ffmpeg' is not recognized as an internal or external command,
+    operable program or batch file.
+    'ffmpeg' is not recognized as an internal or external command,
+    operable program or batch file.
+    'ffmpeg' is not recognized as an internal or external command,
+    operable program or batch file.
+    
+
 
 ```python
 onset_pairs = {
@@ -229,6 +311,17 @@ for label, (path_a, path_b) in onset_pairs.items():
     print(f"  width    A={feat_a['stereo_width']:.3f}  B={feat_b['stereo_width']:.3f}  "
           f"delta(B-A)={feat_b['stereo_width']-feat_a['stereo_width']:+.3f}")
 ```
+
+    --- onset_2s (attack) ---
+      LUFS     A=-15.54  B=-18.14  delta(B-A)=-2.60
+      low_mid  A=0.174  B=0.228  delta(B-A)=+0.054
+      width    A=0.329  B=0.659  delta(B-A)=+0.330
+    --- onset_tail (sustain) ---
+      LUFS     A=-15.03  B=-15.39  delta(B-A)=-0.36
+      low_mid  A=0.130  B=0.179  delta(B-A)=+0.048
+      width    A=0.332  B=0.307  delta(B-A)=-0.025
+    
+
 
 _(Sample results: onset_2s width delta = +0.330, LUFS delta = -2.60; onset_tail width delta shrinks to +0.025 — the cell above regenerates these.)_
 
@@ -277,6 +370,8 @@ This is the CLI table from Section 6 as a bar chart — the view that
 _misleads_ the ear, since B looks brighter/less-boxy/similar-width across
 the whole song.
 
+
+
 ```python
 metrics = ["lufs", "spectral_centroid", "low_mid_energy", "presence_band", "stereo_width"]
 metric_labels = ["LUFS", "Spectral\ncentroid (Hz)", "Low-mid\nenergy", "Presence\nband", "Stereo\nwidth"]
@@ -301,11 +396,20 @@ fig.tight_layout()
 plt.show()
 ```
 
+
+    
+![png](lesson_files/lesson_17_0.png)
+    
+
+
+
 ### 12.2 Segment-level deltas by lyric line
 
 Same three lines used in Section 7, plotted as deltas (B minus A) so the
 sign flip across lines is visible at a glance: only `opening_vocal` pushes
 positive on both metrics.
+
+
 
 ```python
 segment_pairs = {
@@ -339,11 +443,20 @@ fig.tight_layout()
 plt.show()
 ```
 
+
+    
+![png](lesson_files/lesson_19_0.png)
+    
+
+
+
 ### 12.3 Onset zoom — attack vs sustain
 
 The narrowest view from Section 8: within the same sung phrase, comparing
 the first 2 seconds (attack) against the following ~3 seconds (sustain).
 The gap should visibly collapse from left pair to right pair on both panels.
+
+
 
 ```python
 onset_pairs = {
@@ -380,6 +493,13 @@ fig.suptitle("Onset zoom: the spike collapses within ~3 seconds")
 fig.tight_layout()
 plt.show()
 ```
+
+
+    
+![png](lesson_files/lesson_21_0.png)
+    
+
+
 
 ## 13. Open questions for a future session
 
