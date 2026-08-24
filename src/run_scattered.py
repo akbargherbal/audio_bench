@@ -12,26 +12,37 @@ import subprocess
 from pathlib import Path
 from typing import List, Set
 
-
 # ==========================================
 # CONFIGURATION
 # ==========================================
 
+
+list_ref_audios = [
+    "D:/MUSIC_GCP_UPLOAD/REF/حجاز_03-مشهد-الذئاب_SONG_B.mp3",
+    "D:/MUSIC_GCP_UPLOAD/REF/عجم_ليس-الجمال-بمئزر.mp3",
+    "D:/MUSIC_GCP_UPLOAD/REF/كرد_02-تعب-الحياة-ونواح-بنات-الهديل_SONG_B.mp3",
+    "D:/MUSIC_GCP_UPLOAD/REF/نهاوند_RETAKE_02-وحشة-الاغتراب-ووفاء-السلاح_SONG_B.mp3",
+]
+
+
+from all_songs import hijaz_songs
+
+print("\n".join(hijaz_songs[:3]))
+
 # 1. Reference Audio Path
-REFERENCE_AUDIO = "data/audio/REF_01.mp3"
+REFERENCE_AUDIO = list_ref_audios[0]
+
 
 # 2. Add all directories where your chunks/mp3s are scattered
 SEARCH_DIRECTORIES = [
-    "data/audio/WAV",
-    "data/audio/other_folder",
-    "experiments/recordings/speaker_1",
-    "/absolute/path/to/another/batch_dir",
+    # "data/audio/WAV",
+    # "data/audio/other_folder",
+    # "experiments/recordings/speaker_1",
+    # "/absolute/path/to/another/batch_dir",
 ]
 
 # 3. (Optional) Explicit list of individual files to include
-EXPLICIT_FILES = [
-    # "data/special_cases/sample_99.mp3",
-]
+EXPLICIT_FILES = hijaz_songs
 
 # 4. Audio formats to collect
 AUDIO_EXTENSIONS: Set[str] = {".mp3", ".wav", ".flac", ".ogg", ".m4a"}
@@ -44,7 +55,10 @@ PYTHON_BIN = sys.executable  # Uses the currently active virtualenv/python
 # HELPER FUNCTIONS
 # ==========================================
 
-def collect_audio_files(directories: List[str], explicit_files: List[str]) -> List[Path]:
+
+def collect_audio_files(
+    directories: List[str], explicit_files: List[str]
+) -> List[Path]:
     """Recursively collects and deduplicates audio files from directories and file lists."""
     collected = set()
 
@@ -68,7 +82,9 @@ def collect_audio_files(directories: List[str], explicit_files: List[str]) -> Li
         if p.exists() and p.is_file() and p.suffix.lower() in AUDIO_EXTENSIONS:
             collected.add(p)
         else:
-            print(f"[!] Warning: Explicit file not found or invalid format: {file_path}")
+            print(
+                f"[!] Warning: Explicit file not found or invalid format: {file_path}"
+            )
 
     return sorted(list(collected))
 
@@ -106,6 +122,7 @@ def main():
             except OSError:
                 # Fallback for Windows without symlink privileges
                 import shutil
+
                 shutil.copyfile(file, link_name)
 
         print(f"Staged in       : {tmp_path}")
@@ -116,8 +133,10 @@ def main():
         cmd = [
             PYTHON_BIN,
             "main.py",
-            "--reference", str(ref_path),
-            "--batch", str(tmp_path),
+            "--reference",
+            str(ref_path),
+            "--batch",
+            str(tmp_path),
         ]
 
         # Pass along any extra CLI flags passed to this script (e.g. --device cuda)
@@ -128,7 +147,7 @@ def main():
             # Stream output directly to the terminal in real-time
             process = subprocess.Popen(cmd, stdout=sys.stdout, stderr=sys.stderr)
             process.communicate()
-            
+
             if process.returncode != 0:
                 print(f"\n[!] Process exited with status code: {process.returncode}")
             else:
